@@ -6,6 +6,7 @@ use x11rb::{
     protocol::Event,
 };
 
+use ansi_term::{Colour::{Red, Blue}, Style};
 use clap::{App, Arg};
 use edid::{parse, Descriptor, EDID};
 use nom::IResult;
@@ -201,9 +202,9 @@ struct Position{ x: i16, y: i16 }
 impl Position {
     fn new_from_string(s: &str) -> std::result::Result<Self, Box<dyn Error>> {
         let mut iter = s.split('x');
-        let x = iter.next().ok_or_else(|| str_err("Position is missing X component"))?.parse()?;
-        let y = iter.next().ok_or_else(|| str_err("Position is missing Y component"))?.parse()?;
-        Ok(Self{x, y})
+        let x = iter.next().ok_or_else(|| str_err("Position is missing X component"))?;
+        let y = iter.next().ok_or_else(|| str_err("Position is missing Y component"))?;
+        Ok(Self{x: x.parse()?, y: y.parse()?})
     }
 
     fn deserialize<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
@@ -261,6 +262,10 @@ fn switch_setup<C: Connection>(
     }
 }
 
+fn ok_or_exit<T, E>(r: std::result::Result<T, E>, f: impl Fn(E) -> i32) -> T {
+    match r { Ok(t) => t, Err(e) => std::process::exit(f(e)) }
+}
+
 fn main() {
     let args = App::new("An automatic X monitor configuration switcher")
         .version("0.1")
@@ -272,31 +277,67 @@ fn main() {
                 .required(true)
                 .index(1),
         )
+        .arg(
+            Arg::with_name("check")
+                .short("c")
+                .long("check")
+                .help("The configuration file in TOML")
+        )
         .get_matches();
-    let config = args.value_of("config").unwrap();
-    let config = read_to_bytes(config).unwrap();
-    let config: ConfigIn = from_slice(&config).unwrap();
-    let (conn, screen_num) = connect(None).unwrap();
-    let setup = conn.setup();
-    let atom_edid = conn
-        .intern_atom(false, b"EDID")
-        .unwrap()
-        .reply()
-        .unwrap()
-        .atom;
-    let outputs = get_outputs(&conn, setup.roots[screen_num].root).unwrap();
-    let root = setup.roots[screen_num].root;
-    conn.randr_select_input(root, NotifyMask::SCREEN_CHANGE)
-        .unwrap()
-        .check()
-        .unwrap();
-    switch_setup(&config, &conn, &outputs, atom_edid, root, true);
-    loop {
-        match conn.wait_for_event() {
-            Ok(Event::RandrScreenChangeNotify(_)) => {
-                switch_setup(&config, &conn, &outputs, atom_edid, root, false)
+    // Unwrap below is safe, because the program exits from `get_matches` above when a config
+    // is not provided.
+    let config_name = args.value_of("config").unwrap();
+    let config = ok_or_exit(read_to_bytes(config_name), |e| {
+        eprintln!("Error opening configuration file {}: {}", config_name, e);
+        1
+    });
+    let config: ConfigIn = ok_or_exit(from_slice(&config), |e| {
+        match e.line_col() {
+            Some((line, col)) => {
+                let mut lines = config.split(|&c| c == b'\n').skip(line);
+                match lines.next() {
+                    Some(l) => {
+                        let line_len = line.to_string().len();
+                        eprintln!(
+                            "{}: {}",
+                            Red.bold().paint("error"),
+                            Style::new().bold().paint(e.to_string())
+                        );
+                        eprintln!("{:>line_len$}{} {}:{}:{}", "", Blue.bold().paint("-->"), config_name, line+1, col+1, line_len=line_len);
+                        eprintln!("{:>line_len$} {}", "", Blue.bold().paint("|"), line_len=line_len);
+                        eprintln!("{:>line_len$} {}  {}", line+1, Blue.bold().paint("|"), String::from_utf8_lossy(l), line_len=line_len);
+                        eprintln!("{:>line_len$} {}  {:>col$}{}", "", Blue.bold().paint("|"), "", Red.bold().paint("^"),  col=col, line_len=line_len);
+                    }
+                    None => eprintln!("error: {}", e),
+                }
             }
-            _ => (),
+            None => eprintln!("error: {}", e),
+        }
+        2
+    });
+    if !args.is_present("check") {
+        let (conn, screen_num) = connect(None).unwrap();
+        let setup = conn.setup();
+        let atom_edid = conn
+            .intern_atom(false, b"EDID")
+            .unwrap()
+            .reply()
+            .unwrap()
+            .atom;
+        let outputs = get_outputs(&conn, setup.roots[screen_num].root).unwrap();
+        let root = setup.roots[screen_num].root;
+        conn.randr_select_input(root, NotifyMask::SCREEN_CHANGE)
+            .unwrap()
+            .check()
+            .unwrap();
+        switch_setup(&config, &conn, &outputs, atom_edid, root, true);
+        loop {
+            match conn.wait_for_event() {
+                Ok(Event::RandrScreenChangeNotify(_)) => {
+                    switch_setup(&config, &conn, &outputs, atom_edid, root, false)
+                }
+                _ => (),
+            }
         }
     }
 }
