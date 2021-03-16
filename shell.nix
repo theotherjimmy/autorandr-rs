@@ -12,5 +12,7 @@ pkgs.mkShell {
     rust-analyzer
     gnuplot
     bingrep
+    scdoc
+    groff
   ];
 }
