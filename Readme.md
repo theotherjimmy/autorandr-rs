@@ -1,0 +1,1 @@
+man/autorandr-rs.1.scd
