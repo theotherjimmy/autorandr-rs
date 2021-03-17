@@ -20,3 +20,6 @@ features = [ "derive" ]
 version = "0.8"
 default-features = false
 features = [ "randr" ]
+
+[build-dependencies]
+clap = "2.33"

@@ -7,7 +7,6 @@ use x11rb::{
 };
 
 use ansi_term::{Colour::{Red, Blue}, Style};
-use clap::{App, Arg};
 use edid::{parse, Descriptor, EDID};
 use nom::IResult;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -19,6 +18,8 @@ use std::{
     io::Read,
     path::Path,
 };
+
+mod app;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -267,23 +268,7 @@ fn ok_or_exit<T, E>(r: std::result::Result<T, E>, f: impl Fn(E) -> i32) -> T {
 }
 
 fn main() {
-    let args = App::new("An automatic X monitor configuration switcher")
-        .version("0.1")
-        .about("Watches for changes in connected monitors and switches configurations with EDIDs")
-        .arg(
-            Arg::with_name("config")
-                .value_name("CONFIG")
-                .help("The configuration file in TOML")
-                .required(true)
-                .index(1),
-        )
-        .arg(
-            Arg::with_name("check")
-                .short("c")
-                .long("check")
-                .help("The configuration file in TOML")
-        )
-        .get_matches();
+    let args = app::args().get_matches();
     // Unwrap below is safe, because the program exits from `get_matches` above when a config
     // is not provided.
     let config_name = args.value_of("config").unwrap();
