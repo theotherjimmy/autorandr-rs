@@ -13,10 +13,12 @@ use serde::{Deserialize, Deserializer, Serialize};
 use toml::from_slice;
 
 use std::{
+    convert::TryInto,
     collections::{HashMap, HashSet},
     error::Error,
     io::Read,
     path::Path,
+    hash::Hash,
 };
 
 mod app;
@@ -41,7 +43,7 @@ fn get_outputs<C: Connection>(conn: &C, root: Window) -> Result<Vec<Output>> {
     Ok(cookie.reply()?.outputs)
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct Monitor {
     product: Option<String>,
     serial: Option<String>,
@@ -80,61 +82,29 @@ fn get_monitors<'o, C: Connection>(
     })
 }
 
-fn match_monitors<'c>(
-    config: &'c ConfigIn,
-    monitors: impl Iterator<Item = (Output, Monitor)> + 'c,
-) -> impl Iterator<Item = (Output, String)> + 'c {
-    monitors.filter_map(move |(out, mon)| {
-        config
-            .monitors
-            .iter()
-            .find(|(_k, v)| *v == &mon)
-            .map(|(k, _v)| (out, k.clone()))
-    })
-}
-
-fn match_config<'c>(
-    config: &'c ConfigIn,
-    monitors: &HashSet<String>,
-) -> Option<(&'c String, &'c SingleConfig)> {
-    config
-        .configurations
-        .iter()
-        .find(|(_k, v)| &v.monitors == monitors)
-}
-
 fn get_config<'a, C: Connection>(
-    config: &'a ConfigIn,
+    config: &'a Config,
     conn: &'a C,
     outputs: &'a Vec<Output>,
     atom_edid: Atom,
-) -> std::result::Result<(&'a String, HashMap<&'a Output, &'a MonConfig>), Vec<String>> {
-    let monitors = get_monitors(conn, outputs, atom_edid);
-    let mon_names: HashMap<Output, String> = match_monitors(config, monitors).collect();
-    let (conf_name, config) = match_config(
-        config,
-        &mon_names.iter().map(|(_out, name)| name).cloned().collect(),
-    ).ok_or_else(|| mon_names.values().cloned().collect::<Vec<_>>())?;
-    Ok((
-        conf_name,
-        outputs
-            .iter()
-            .filter_map(|out| {
-                mon_names
-                    .get(out)
-                    .and_then(|name| config.setup.get(name))
-                    .map(|conf| (out, conf))
-            })
-            .collect(),
-    ))
+) -> Option<(&'a String, HashMap<Output, &'a MonConfig>)> {
+    let out_to_mon: HashMap<_, _> = get_monitors(conn, outputs, atom_edid).collect();
+    let mut monitors: Vec<_> = out_to_mon.values().cloned().collect();
+    monitors.sort();
+    let (name, setup) = config.0.get(&monitors)?;
+    let mut out = HashMap::with_capacity(setup.len());
+    for (output, mon) in out_to_mon.into_iter() {
+        // Unwrap is checked by Config type on creating
+        out.insert(output, setup.get(&mon).unwrap());
+    }
+    Some((name, out))
 }
 
-fn mode_map<C: Connection>(conn: &C, root: Window) -> Result<(HashMap<String, HashSet<u32>>, Timestamp)>{
+fn mode_map<C: Connection>(conn: &C, root: Window) -> Result<(HashMap<Mode, HashSet<u32>>, Timestamp)>{
     let resources = conn.randr_get_screen_resources(root)?.reply()?;
     let mut modes: HashMap<_, HashSet<u32>> = HashMap::with_capacity(resources.modes.len());
     for mi in resources.modes.iter() {
-        let modestring = format!("{}x{}", mi.width, mi.height);
-        modes.entry(modestring).or_default().insert(mi.id);
+        modes.entry(Mode{w: mi.width, h: mi.height}).or_default().insert(mi.id);
     }
     Ok((
         modes,
@@ -145,11 +115,11 @@ fn mode_map<C: Connection>(conn: &C, root: Window) -> Result<(HashMap<String, Ha
 fn apply_config<C: Connection>(
     conn: &C,
     outputs: &Vec<Output>,
-    setup: HashMap<&Output, &MonConfig>,
+    setup: HashMap<Output, &MonConfig>,
     root: Window,
 ) -> Result<bool> {
     let (modes, timestamp) = mode_map(conn, root)?;
-    let mut used_crtcs = HashSet::new();
+    let mut used_crtcs = HashSet::with_capacity(outputs.len());
     let mut config_applied = false;
     let primary = conn.randr_get_output_primary(root)?.reply()?.output;
     for &out in outputs {
@@ -214,17 +184,35 @@ impl Position {
     }
 }
 
+#[derive(Deserialize, Debug, Hash, PartialEq, Eq)]
+struct Mode{ w: u16, h: u16 }
+impl Mode {
+    fn new_from_string(s: &str) -> std::result::Result<Self, Box<dyn Error>> {
+        let mut iter = s.split('x');
+        let w = iter.next().ok_or_else(|| str_err("Position is missing X component"))?;
+        let h = iter.next().ok_or_else(|| str_err("Position is missing Y component"))?;
+        Ok(Self{w: w.parse()?, h: h.parse()?})
+    }
+
+    fn deserialize<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Self::new_from_string(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 #[derive(Deserialize, Debug)]
 struct MonConfig {
-    mode: String,
+    #[serde(deserialize_with = "Mode::deserialize")]
+    mode: Mode,
     #[serde(deserialize_with = "Position::deserialize")]
     position: Position,
     primary: bool,
 }
 
+
 #[derive(Deserialize, Debug)]
 struct SingleConfig {
-    monitors: HashSet<String>,
+    monitors: Vec<String>,
     #[serde(flatten)]
     setup: HashMap<String, MonConfig>,
 }
@@ -235,6 +223,37 @@ struct ConfigIn {
     configurations: HashMap<String, SingleConfig>,
 }
 
+struct Config(HashMap<Vec<Monitor>, (String, HashMap<Monitor, MonConfig>)>);
+
+impl TryInto<Config> for ConfigIn {
+    type Error = String;
+    fn try_into(self) -> std::result::Result<Config, Self::Error>{
+        let Self { monitors: mon_names, configurations } = self;
+        let mut out = HashMap::with_capacity(configurations.len());
+        for (conf_name, SingleConfig{ monitors, setup }) in configurations.into_iter() {
+            let mut mon_set = Vec::with_capacity(monitors.len());
+            for mon_name in monitors.into_iter() {
+                let mon_desc = mon_names.get(&mon_name).ok_or_else(|| format!(
+                    "In configurations.{}: Monitor in maching statement, {}, not found",
+                    conf_name, mon_name
+                ))?;
+                mon_set.push(mon_desc.clone())
+            }
+            mon_set.sort();
+            let mut conf_out = HashMap::with_capacity(setup.len());
+            for (mon_name, mon_cfg) in setup.into_iter() {
+                let mon_desc = mon_names.get(&mon_name).ok_or_else(|| format!(
+                    "In configurations.{}: Monitor named in configuration, {}, not found",
+                    conf_name, mon_name
+                ))?;
+                conf_out.insert(mon_desc.clone(), mon_cfg);
+            }
+            out.insert(mon_set, (conf_name, conf_out));
+        }
+        Ok(Config(out))
+    }
+}
+
 fn read_to_bytes<P: AsRef<Path>>(fname: P) -> Result<Vec<u8>> {
     let mut file = std::fs::File::open(&fname)?;
     let mut bytes = Vec::with_capacity(4096);
@@ -242,8 +261,9 @@ fn read_to_bytes<P: AsRef<Path>>(fname: P) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+
 fn switch_setup<C: Connection>(
-    config: &ConfigIn,
+    config: &Config,
     conn: &C,
     outputs: &Vec<Output>,
     edid: Atom,
@@ -251,7 +271,7 @@ fn switch_setup<C: Connection>(
     force_print: bool,
 ) -> () {
     match get_config(&config, conn, &outputs, edid) {
-        Ok((name, setup)) => {
+        Some((name, setup)) => {
             match apply_config(conn, &outputs, setup, root) {
                 Ok(changed) => if changed || force_print {
                     println!("Monitor configuration: {}", name)
@@ -259,7 +279,7 @@ fn switch_setup<C: Connection>(
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
-        Err(matched_mons) => eprintln!("Error: Monitor change indicated, and no match was found for the monitors {:?}", matched_mons),
+        None => eprintln!("Error: Monitor change indicated, and the connected monitors did not match a config"),
     }
 }
 
@@ -298,6 +318,15 @@ fn main() {
             }
             None => eprintln!("error: {}", e),
         }
+        2
+    });
+    let config: Config = ok_or_exit(config.try_into(), |s| {
+        // TODO: Try to get line information for this stuff
+        eprintln!(
+            "{}: {}",
+            Red.bold().paint("error"),
+            Style::new().bold().paint(s)
+        );
         2
     });
     if !args.is_present("check") {
