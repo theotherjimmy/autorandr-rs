@@ -5,75 +5,63 @@ use ansi_term::{
 };
 use edid::{Descriptor, EDID};
 use serde::{Deserialize, Deserializer};
+use serde::de::Error;
 use toml::from_slice;
 
 use std::{
     cmp::max,
     collections::HashMap,
     convert::TryInto,
-    error::Error,
     fmt::{Display, Formatter},
     io::{Read, Result as IOResult},
     path::Path,
 };
 
-fn str_err(e: &str) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-}
-
 /// A position, expressed an <x>x<y>
-#[derive(Deserialize, Debug)]
+#[derive(Debug)]
 pub struct Position {
     pub x: i16,
     pub y: i16,
 }
 
-impl Position {
-    fn new_from_string(s: &str) -> std::result::Result<Self, Box<dyn Error>> {
+impl<'de> Deserialize<'de> for Position {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = <&str>::deserialize(deserializer)?;
         let mut iter = s.split('x');
         let x = iter
             .next()
-            .ok_or_else(|| str_err("Position is missing X component"))?;
+            .ok_or_else(|| Error::missing_field("Position X component"))?;
         let y = iter
             .next()
-            .ok_or_else(|| str_err("Position is missing Y component"))?;
+            .ok_or_else(|| Error::missing_field("Position Y component"))?;
         Ok(Self {
-            x: x.parse()?,
-            y: y.parse()?,
+            x: x.parse().map_err(Error::custom)?,
+            y: y.parse().map_err(Error::custom)?,
         })
-    }
-
-    fn deserialize<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        Self::new_from_string(&s).map_err(serde::de::Error::custom)
     }
 }
 
 /// A monitor mode, expressed an <w>x<h>
-#[derive(Deserialize, Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct Mode {
     pub w: u16,
     pub h: u16,
 }
 
-impl Mode {
-    fn new_from_string(s: &str) -> std::result::Result<Self, Box<dyn Error>> {
+impl<'de> Deserialize<'de> for Mode {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = <&str>::deserialize(deserializer)?;
         let mut iter = s.split('x');
         let w = iter
             .next()
-            .ok_or_else(|| str_err("Position is missing X component"))?;
+            .ok_or_else(|| Error::missing_field("Mode width component"))?;
         let h = iter
             .next()
-            .ok_or_else(|| str_err("Position is missing Y component"))?;
+            .ok_or_else(|| Error::missing_field("Mode height component"))?;
         Ok(Self {
-            w: w.parse()?,
-            h: h.parse()?,
+            w: w.parse().map_err(Error::custom)?,
+            h: h.parse().map_err(Error::custom)?,
         })
-    }
-
-    fn deserialize<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        Self::new_from_string(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -106,9 +94,7 @@ impl From<EDID> for Monitor {
 
 #[derive(Deserialize, Debug)]
 pub struct MonConfig {
-    #[serde(deserialize_with = "Mode::deserialize")]
     pub mode: Mode,
-    #[serde(deserialize_with = "Position::deserialize")]
     pub position: Position,
     pub primary: bool,
 }
