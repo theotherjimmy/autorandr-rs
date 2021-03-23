@@ -22,3 +22,10 @@ monitors = ["Work-Down"]
 mode = "2560x1440"
 position = "0x0"
 primary = true
+
+[configurations.Work-Upper-Only]
+monitors = ["Work-Up"]
+[configurations.Work-Upper-Only.Work-Up]
+mode = "2560x1440"
+position = "0x0"
+primary = true

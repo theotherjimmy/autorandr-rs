@@ -1,6 +1,6 @@
 use clap::{App, Arg};
 
-pub const NAME: &'static str= "autorandr-rs";
+pub const NAME: &'static str = "autorandr-rs";
 
 pub fn args() -> App<'static, 'static> {
     App::new(NAME)
@@ -17,6 +17,6 @@ pub fn args() -> App<'static, 'static> {
             Arg::with_name("check")
                 .short("c")
                 .long("check")
-                .help("The configuration file in TOML")
+                .help("The configuration file in TOML"),
         )
 }

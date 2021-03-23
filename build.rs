@@ -28,7 +28,7 @@ fn main() {
     app.gen_completions(app::NAME, Shell::Fish, &outdir);
 }
 
-fn generate_man_pages<P: AsRef<Path>>(outdir: P)  {
+fn generate_man_pages<P: AsRef<Path>>(outdir: P) {
     for page in read_dir("man").unwrap() {
         let in_path = page.unwrap().path();
         let out_path = outdir.as_ref().join(in_path.file_stem().unwrap());
