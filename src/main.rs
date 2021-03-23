@@ -10,27 +10,17 @@ use x11rb::{
     protocol::Event,
 };
 
-use ansi_term::{
-    Colour::{Blue, Red},
-    Style,
-};
-use edid::{parse, Descriptor, EDID};
+use edid::{parse, EDID};
 use nom::IResult;
-use serde::{Deserialize, Deserializer, Serialize};
-use toml::from_slice;
 
 use std::{
-    cmp::max,
     collections::{HashMap, HashSet},
-    convert::TryInto,
     error::Error,
-    fmt::{Display, Formatter},
-    hash::Hash,
-    io::Read,
-    path::Path,
 };
 
 mod app;
+mod config;
+use config::{Config, Position, Mode, Monitor, MonConfig, SingleConfig};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -45,27 +35,6 @@ fn get_edid<C: Connection>(conn: &C, atom_edid: Atom, output: Output) -> Result<
 
 fn get_outputs<C: Connection>(conn: &C, root: Window) -> Result<GetScreenResourcesCurrentReply> {
     Ok(conn.randr_get_screen_resources_current(root)?.reply()?)
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct Monitor {
-    product: Option<String>,
-    serial: Option<String>,
-}
-
-impl From<EDID> for Monitor {
-    fn from(edid: EDID) -> Self {
-        let mut product = None;
-        let mut serial = None;
-        for desc in edid.descriptors {
-            match desc {
-                Descriptor::ProductName(pn) => product = Some(pn),
-                Descriptor::SerialNumber(sn) => serial = Some(sn),
-                _ => (),
-            }
-        }
-        Self { product, serial }
-    }
 }
 
 fn get_monitors<'o, C: Connection>(
@@ -229,152 +198,6 @@ fn apply_config<C: Connection>(
     }
 }
 
-fn str_err(e: &str) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-}
-
-#[derive(Deserialize, Debug)]
-struct Position {
-    x: i16,
-    y: i16,
-}
-impl Position {
-    fn new_from_string(s: &str) -> std::result::Result<Self, Box<dyn Error>> {
-        let mut iter = s.split('x');
-        let x = iter
-            .next()
-            .ok_or_else(|| str_err("Position is missing X component"))?;
-        let y = iter
-            .next()
-            .ok_or_else(|| str_err("Position is missing Y component"))?;
-        Ok(Self {
-            x: x.parse()?,
-            y: y.parse()?,
-        })
-    }
-
-    fn deserialize<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        Self::new_from_string(&s).map_err(serde::de::Error::custom)
-    }
-}
-
-#[derive(Deserialize, Debug, Hash, PartialEq, Eq)]
-struct Mode {
-    w: u16,
-    h: u16,
-}
-
-impl Mode {
-    fn new_from_string(s: &str) -> std::result::Result<Self, Box<dyn Error>> {
-        let mut iter = s.split('x');
-        let w = iter
-            .next()
-            .ok_or_else(|| str_err("Position is missing X component"))?;
-        let h = iter
-            .next()
-            .ok_or_else(|| str_err("Position is missing Y component"))?;
-        Ok(Self {
-            w: w.parse()?,
-            h: h.parse()?,
-        })
-    }
-
-    fn deserialize<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        Self::new_from_string(&s).map_err(serde::de::Error::custom)
-    }
-}
-
-impl Display for Mode {
-    fn fmt(&self, f: &mut Formatter<'_> ) -> std::result::Result<(), std::fmt::Error> {
-        write!(f, "{}x{}", self.w, self.h)
-    }
-}
-
-#[derive(Deserialize, Debug)]
-struct MonConfig {
-    #[serde(deserialize_with = "Mode::deserialize")]
-    mode: Mode,
-    #[serde(deserialize_with = "Position::deserialize")]
-    position: Position,
-    primary: bool,
-}
-
-#[derive(Deserialize, Debug)]
-struct SingleConfigIn {
-    monitors: Vec<String>,
-    #[serde(flatten)]
-    setup: HashMap<String, MonConfig>,
-}
-
-#[derive(Deserialize, Debug)]
-struct ConfigIn {
-    monitors: HashMap<String, Monitor>,
-    configurations: HashMap<String, SingleConfigIn>,
-}
-
-struct SingleConfig {
-    name: String,
-    fb_size: Mode,
-    setup: HashMap<Monitor, MonConfig>,
-}
-
-struct Config(HashMap<Vec<Monitor>, SingleConfig>);
-
-impl TryInto<Config> for ConfigIn {
-    type Error = String;
-    fn try_into(self) -> std::result::Result<Config, Self::Error> {
-        let Self {
-            monitors: mon_names,
-            configurations,
-        } = self;
-        let mut out = HashMap::with_capacity(configurations.len());
-        for (conf_name, SingleConfigIn { monitors, setup }) in configurations.into_iter() {
-            let mut mon_set = Vec::with_capacity(monitors.len());
-            for mon_name in monitors.into_iter() {
-                let mon_desc = mon_names.get(&mon_name).ok_or_else(|| {
-                    format!(
-                        "In configurations.{}: Monitor in maching statement, {}, not found",
-                        conf_name, mon_name
-                    )
-                })?;
-                mon_set.push(mon_desc.clone())
-            }
-            mon_set.sort();
-            let mut fb_size = Mode { w: 0, h: 0 };
-            let mut next_setup = HashMap::with_capacity(setup.len());
-            for (mon_name, mon_cfg) in setup.into_iter() {
-                let mon_desc = mon_names.get(&mon_name).ok_or_else(|| {
-                    format!(
-                        "In configurations.{}: Monitor named in configuration, {}, not found",
-                        conf_name, mon_name
-                    )
-                })?;
-                fb_size.w = max(fb_size.w, mon_cfg.position.x as u16 + mon_cfg.mode.w);
-                fb_size.h = max(fb_size.h, mon_cfg.position.y as u16 + mon_cfg.mode.h);
-                next_setup.insert(mon_desc.clone(), mon_cfg);
-            }
-            out.insert(
-                mon_set,
-                SingleConfig {
-                    name: conf_name,
-                    setup: next_setup,
-                    fb_size,
-                },
-            );
-        }
-        Ok(Config(out))
-    }
-}
-
-fn read_to_bytes<P: AsRef<Path>>(fname: P) -> Result<Vec<u8>> {
-    let mut file = std::fs::File::open(&fname)?;
-    let mut bytes = Vec::with_capacity(4096);
-    file.read_to_end(&mut bytes)?;
-    Ok(bytes)
-}
-
 fn switch_setup<C: Connection>(
     config: &Config,
     conn: &C,
@@ -404,82 +227,12 @@ fn switch_setup<C: Connection>(
     }
 }
 
-fn ok_or_exit<T, E>(r: std::result::Result<T, E>, f: impl Fn(E) -> i32) -> T {
-    match r {
-        Ok(t) => t,
-        Err(e) => std::process::exit(f(e)),
-    }
-}
-
 fn main() {
     let args = app::args().get_matches();
     // Unwrap below is safe, because the program exits from `get_matches` above when a config
     // is not provided.
     let config_name = args.value_of("config").unwrap();
-    let config = ok_or_exit(read_to_bytes(config_name), |e| {
-        eprintln!("Error opening configuration file {}: {}", config_name, e);
-        1
-    });
-    let config: ConfigIn = ok_or_exit(from_slice(&config), |e| {
-        match e.line_col() {
-            Some((line, col)) => {
-                let mut lines = config.split(|&c| c == b'\n').skip(line);
-                match lines.next() {
-                    Some(l) => {
-                        let line_len = line.to_string().len();
-                        eprintln!(
-                            "{}: {}",
-                            Red.bold().paint("error"),
-                            Style::new().bold().paint(e.to_string())
-                        );
-                        eprintln!(
-                            "{:>line_len$}{} {}:{}:{}",
-                            "",
-                            Blue.bold().paint("-->"),
-                            config_name,
-                            line + 1,
-                            col + 1,
-                            line_len = line_len
-                        );
-                        eprintln!(
-                            "{:>line_len$} {}",
-                            "",
-                            Blue.bold().paint("|"),
-                            line_len = line_len
-                        );
-                        eprintln!(
-                            "{:>line_len$} {}  {}",
-                            line + 1,
-                            Blue.bold().paint("|"),
-                            String::from_utf8_lossy(l),
-                            line_len = line_len
-                        );
-                        eprintln!(
-                            "{:>line_len$} {}  {:>col$}{}",
-                            "",
-                            Blue.bold().paint("|"),
-                            "",
-                            Red.bold().paint("^"),
-                            col = col,
-                            line_len = line_len
-                        );
-                    }
-                    None => eprintln!("error: {}", e),
-                }
-            }
-            None => eprintln!("error: {}", e),
-        }
-        2
-    });
-    let config: Config = ok_or_exit(config.try_into(), |s| {
-        // TODO: Try to get line information for this stuff
-        eprintln!(
-            "{}: {}",
-            Red.bold().paint("error"),
-            Style::new().bold().paint(s)
-        );
-        2
-    });
+    let config = Config::from_fname_or_exit(&config_name);
     if !args.is_present("check") {
         let (conn, screen_num) = connect(None).unwrap();
         let setup = conn.setup();
