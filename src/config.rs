@@ -1,3 +1,4 @@
+//! Parser for the autorandr-rs(5) configuration file
 use ansi_term::{
     Colour::{Blue, Red},
     Style,
@@ -7,9 +8,9 @@ use serde::{Deserialize, Deserializer};
 use toml::from_slice;
 
 use std::{
-    convert::TryInto,
-    collections::HashMap,
     cmp::max,
+    collections::HashMap,
+    convert::TryInto,
     error::Error,
     fmt::{Display, Formatter},
     io::{Read, Result as IOResult},
@@ -20,6 +21,7 @@ fn str_err(e: &str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
 }
 
+/// A position, expressed an <x>x<y>
 #[derive(Deserialize, Debug)]
 pub struct Position {
     pub x: i16,
@@ -47,6 +49,7 @@ impl Position {
     }
 }
 
+/// A monitor mode, expressed an <w>x<h>
 #[derive(Deserialize, Debug, Hash, PartialEq, Eq)]
 pub struct Mode {
     pub w: u16,
@@ -75,7 +78,7 @@ impl Mode {
 }
 
 impl Display for Mode {
-    fn fmt(&self, f: &mut Formatter<'_> ) -> std::result::Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         write!(f, "{}x{}", self.w, self.h)
     }
 }
@@ -100,7 +103,6 @@ impl From<EDID> for Monitor {
         Self { product, serial }
     }
 }
-
 
 #[derive(Deserialize, Debug)]
 pub struct MonConfig {
@@ -204,6 +206,9 @@ impl Config {
                     let mut lines = bytes.split(|&c| c == b'\n').skip(line);
                     match lines.next() {
                         Some(l) => {
+                            // Lines from parsing are 0 indexed, but editors and humans 1
+                            // index them.
+                            let line = line + 1;
                             let pad_len = line.to_string().len();
                             let pad = "";
                             eprintln!(
@@ -217,14 +222,12 @@ impl Config {
                                 arrow = Blue.bold().paint("-->"),
                                 fname = config_name,
                                 pad = pad,
-                                l_n = line + 1,
-                                c_n = col + 1,
+                                l_n = line,
+                                c_n = col,
                                 pipe = Blue.bold().paint("|"),
                                 pad_len = pad_len,
                                 line_text = String::from_utf8_lossy(l),
                                 under = Red.bold().paint("^"),
-                            );
-                            eprintln!(
                             );
                         }
                         None => eprintln!("error: {}", e),

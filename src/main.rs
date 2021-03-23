@@ -3,8 +3,8 @@ use x11rb::{
     connection::Connection,
     cookie::Cookie,
     protocol::randr::{
-        ConnectionExt as RandrExt, GetScreenResourcesCurrentReply, NotifyMask, Output,
-        GetCrtcInfoReply, SetCrtcConfigReply, SetCrtcConfigRequest,
+        ConnectionExt as RandrExt, GetCrtcInfoReply, GetScreenResourcesCurrentReply, NotifyMask,
+        Output, SetCrtcConfigReply, SetCrtcConfigRequest,
     },
     protocol::xproto::{Atom, ConnectionExt as XprotoExt, Timestamp, Window},
     protocol::Event,
@@ -20,10 +20,11 @@ use std::{
 
 mod app;
 mod config;
-use config::{Config, Position, Mode, Monitor, MonConfig, SingleConfig};
+use config::{Config, Mode, MonConfig, Monitor, Position, SingleConfig};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
+/// Read an EDID from an output.
 fn get_edid<C: Connection>(conn: &C, atom_edid: Atom, output: Output) -> Result<Option<EDID>> {
     let cookie = conn.randr_get_output_property(output, atom_edid, 19u32, 0, 256, false, true)?;
     let props = cookie.reply()?;
@@ -33,10 +34,13 @@ fn get_edid<C: Connection>(conn: &C, atom_edid: Atom, output: Output) -> Result<
     }
 }
 
+/// A convienience function to complete a RandR getScreenResourcesCurrent request.
 fn get_outputs<C: Connection>(conn: &C, root: Window) -> Result<GetScreenResourcesCurrentReply> {
     Ok(conn.randr_get_screen_resources_current(root)?.reply()?)
 }
 
+/// Construct an iterator that represents a mapping from Xorg output ids to monitor descriptions.
+/// The monitor descriptions are generated from the EDID of the display.
 fn get_monitors<'o, C: Connection>(
     conn: &'o C,
     outputs: &'o Vec<Output>,
@@ -54,6 +58,8 @@ fn get_monitors<'o, C: Connection>(
         })
 }
 
+/// Find the config that matches the attached monitors. On a match, this returns a tuple of
+/// (name, frame buffer size, map from output to output config).
 fn get_config<'a, C: Connection>(
     config: &'a Config,
     conn: &'a C,
@@ -76,6 +82,7 @@ fn get_config<'a, C: Connection>(
     Some((name, fb_size, out))
 }
 
+/// Create a map from human mode descriptions, in width and height, to Xorg mode identifiers
 fn mode_map<C: Connection>(
     conn: &C,
     root: Window,
@@ -94,7 +101,7 @@ fn mode_map<C: Connection>(
     Ok((modes, resources.timestamp))
 }
 
-/// Create a request to disable a CRTC or a default CRTC config request
+/// Create a request to disable a CRTC or a default CRTC config request.
 fn disable_crtc<'a, 'b>(crtc: u32, from: &'a GetCrtcInfoReply) -> SetCrtcConfigRequest<'b> {
     SetCrtcConfigRequest {
         crtc,
@@ -108,6 +115,7 @@ fn disable_crtc<'a, 'b>(crtc: u32, from: &'a GetCrtcInfoReply) -> SetCrtcConfigR
     }
 }
 
+/// Make the current Xorg server match the specified configuration.
 fn apply_config<C: Connection>(
     conn: &C,
     res: &GetScreenResourcesCurrentReply,
@@ -126,21 +134,25 @@ fn apply_config<C: Connection>(
     for &out in &res.outputs {
         let conf = match setup.get(&out) {
             Some(c) => c,
-            None => continue // Skip this output; it's not in the setup
+            None => continue, // Skip this output; it's not in the setup
         };
-        let mode_ids = modes.get(&conf.mode).ok_or_else(|| format!(
-            "desired mode, {}, not found", conf.mode
-        ))?;
+        let mode_ids = modes
+            .get(&conf.mode)
+            .ok_or_else(|| format!("desired mode, {}, not found", conf.mode))?;
         let out_info = conn.randr_get_output_info(out, timestamp)?.reply()?;
-        let mode = *out_info.modes.iter().find(|&m| mode_ids.contains(m)).ok_or_else(||
-            format!("out does not support the desired mode, {:?}", conf.mode)
-        )?;
+        let mode = *out_info
+            .modes
+            .iter()
+            .find(|&m| mode_ids.contains(m))
+            .ok_or_else(|| format!("out does not support the desired mode, {:?}", conf.mode))?;
         let dest_crtc = if out_info.crtc != 0 {
             out_info.crtc
         } else {
-            *out_info.crtcs.iter().find(|&c| free_crtcs.contains(c)).ok_or_else(||
-                format!("No Crtc available for monitor id {}", out)
-            )?
+            *out_info
+                .crtcs
+                .iter()
+                .find(|&c| free_crtcs.contains(c))
+                .ok_or_else(|| format!("No Crtc available for monitor id {}", out))?
         };
         let crtc_info = conn.randr_get_crtc_info(dest_crtc, timestamp)?.reply()?;
         //TODO: This is not a correct computation of the screen size
@@ -153,9 +165,17 @@ fn apply_config<C: Connection>(
             if crtc_info.mode != 0 {
                 crtc_disables.push(disable_crtc(dest_crtc, &crtc_info));
             }
-            let rotation = if crtc_info.rotation != 0 { crtc_info.rotation } else { 1 };
+            let rotation = if crtc_info.rotation != 0 {
+                crtc_info.rotation
+            } else {
+                1
+            };
             crtc_enables.push(SetCrtcConfigRequest {
-                x, y, rotation, mode, outputs: vec![out].into(),
+                x,
+                y,
+                rotation,
+                mode,
+                outputs: vec![out].into(),
                 ..disable_crtc(dest_crtc, &crtc_info)
             });
         }
@@ -198,6 +218,8 @@ fn apply_config<C: Connection>(
     }
 }
 
+/// Called for each screen change notificaiton. Detects connected monitors and switches
+/// to the appropriate config.
 fn switch_setup<C: Connection>(
     config: &Config,
     conn: &C,
@@ -227,6 +249,7 @@ fn switch_setup<C: Connection>(
     }
 }
 
+/// You know.
 fn main() {
     let args = app::args().get_matches();
     // Unwrap below is safe, because the program exits from `get_matches` above when a config

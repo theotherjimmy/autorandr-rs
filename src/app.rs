@@ -1,3 +1,4 @@
+//! Command line argument parser for autorandr-rs(1)
 use clap::{App, Arg};
 
 pub const NAME: &'static str = "autorandr-rs";
