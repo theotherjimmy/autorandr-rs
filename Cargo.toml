@@ -1,8 +1,15 @@
 [package]
 name = "autorandr-rs"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Jimmy Brisson <theotherjimmy@gmail.com>"]
 edition = "2018"
+
+[[bin]]
+name = "autorandrd"
+
+[[bin]]
+name = "randr-edid"
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]

@@ -1,13 +1,13 @@
-autorandr-rs(5)
+autorandrd(5)
 
 # NAME
 
-*autorandr-rs.toml* - configuration file for *autorandr-rs*
+*autorandrd.toml* - configuration file for *autorandrd*
 
 
 # SYNTAX
 
-The *autorandr-rs.toml* file is in TOML format.
+The *autorandrd.toml* file is in TOML format.
 See https://toml.io for more information.
 
 
@@ -46,7 +46,7 @@ See https://toml.io for more information.
 
 *configurations.*_<name>_
 	This section specifies a single, named configuraiton and set of _aliases_
-	that, when attached, trigger *autorandr-rs* to apply this configuration.
+	that, when attached, trigger *autorandrd* to apply this configuration.
 	The _name_ has no restrictions.
 
 *configurations.*_<name>_*.monitors*
@@ -78,7 +78,7 @@ See https://toml.io for more information.
 	This field is optional and defaults to _false_.
 
 # SEE ALSO
-*autorandr-rs*(1)
+*autorandrd*(1)
 
 # AUTHORS
 Maintained by Jimmy Brisson. Up to date sources can be found at

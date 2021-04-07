@@ -4,8 +4,8 @@ use ansi_term::{
     Style,
 };
 use edid::{Descriptor, EDID};
-use serde::{Deserialize, Deserializer};
 use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize};
 use toml::from_slice;
 
 use std::{
@@ -71,7 +71,7 @@ impl Display for Mode {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Monitor {
     pub product: Option<String>,
     pub serial: Option<String>,
