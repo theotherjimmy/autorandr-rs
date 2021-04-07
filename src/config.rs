@@ -17,6 +17,8 @@ use std::{
     path::Path,
 };
 
+use crate::ok_or_exit;
+
 /// A position, expressed an <x>x<y>
 #[derive(Debug)]
 pub struct Position {
@@ -163,13 +165,6 @@ impl TryInto<Config> for ConfigIn {
             );
         }
         Ok(Config(out))
-    }
-}
-
-fn ok_or_exit<T, E>(r: Result<T, E>, f: impl Fn(E) -> i32) -> T {
-    match r {
-        Ok(t) => t,
-        Err(e) => std::process::exit(f(e)),
     }
 }
 

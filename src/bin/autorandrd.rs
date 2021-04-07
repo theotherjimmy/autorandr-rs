@@ -6,7 +6,7 @@ use x11rb::{
         ConnectionExt as RandrExt, GetCrtcInfoReply, GetScreenResourcesCurrentReply, NotifyMask,
         Output, SetCrtcConfigReply, SetCrtcConfigRequest,
     },
-    protocol::xproto::{Atom, ConnectionExt as XprotoExt, Timestamp, Window},
+    protocol::xproto::{Atom, Timestamp, Window},
     protocol::Event,
 };
 
@@ -16,7 +16,7 @@ use std::{
 };
 
 use autorandr_rs::config::{Config, Mode, MonConfig, Position, SingleConfig};
-use autorandr_rs::{get_outputs, get_monitors, app};
+use autorandr_rs::{app, edid_atom, get_monitors, get_outputs, ok_or_exit};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -211,6 +211,11 @@ fn switch_setup<C: Connection>(
     }
 }
 
+fn setup_notify<C: Connection>(conn: &C, root: Window, mask: NotifyMask) -> Result<()> {
+    conn.randr_select_input(root, mask)?.check()?;
+    Ok(())
+}
+
 /// You know.
 fn main() {
     let args = app::autorandrd::args().get_matches();
@@ -219,19 +224,22 @@ fn main() {
     let config_name = args.value_of("config").unwrap();
     let config = Config::from_fname_or_exit(&config_name);
     if !args.is_present("check") {
-        let (conn, screen_num) = connect(None).unwrap();
+        let (conn, screen_num) = ok_or_exit(connect(None), |e| {
+            eprintln!("Could not connect to X server: {}", e);
+            1
+        });
         let setup = conn.setup();
-        let atom_edid = conn
-            .intern_atom(false, b"EDID")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
+        let atom_edid = ok_or_exit(edid_atom(&conn), |e| {
+            eprintln!("Failed to intern EDID atom: {}", e);
+            1
+        });
         let root = setup.roots[screen_num].root;
-        conn.randr_select_input(root, NotifyMask::SCREEN_CHANGE)
-            .unwrap()
-            .check()
-            .unwrap();
+        let notify_mask =
+            NotifyMask::SCREEN_CHANGE | NotifyMask::OUTPUT_CHANGE | NotifyMask::CRTC_CHANGE;
+        ok_or_exit(setup_notify(&conn, root, notify_mask), |e| {
+            eprintln!("Could not enable notifications: {}", e);
+            1
+        });
         switch_setup(&config, &conn, atom_edid, root, true);
         loop {
             match conn.wait_for_event() {

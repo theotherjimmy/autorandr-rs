@@ -1,11 +1,8 @@
 use std::error::Error;
 use x11rb::{
     connection::Connection,
-    protocol::randr::{
-        ConnectionExt as RandrExt, GetScreenResourcesCurrentReply,
-        Output,
-    },
-    protocol::xproto::{Atom, Window},
+    protocol::randr::{ConnectionExt as RandrExt, GetScreenResourcesCurrentReply, Output},
+    protocol::xproto::{Atom, ConnectionExt as XprotoExt, Window},
 };
 
 use edid::{parse, EDID};
@@ -16,8 +13,20 @@ pub mod config;
 
 use config::Monitor;
 
+/// Either unwrap the OK, or run the closure that returns an exit code and exit
+pub fn ok_or_exit<T, E>(r: Result<T, E>, f: impl Fn(E) -> i32) -> T {
+    match r {
+        Ok(t) => t,
+        Err(e) => std::process::exit(f(e)),
+    }
+}
+
 /// Read an EDID from an output.
-pub fn get_edid<C: Connection>(conn: &C, atom_edid: Atom, output: Output) -> Result<Option<EDID>, Box<dyn Error>> {
+pub fn get_edid<C: Connection>(
+    conn: &C,
+    atom_edid: Atom,
+    output: Output,
+) -> Result<Option<EDID>, Box<dyn Error>> {
     let cookie = conn.randr_get_output_property(output, atom_edid, 19u32, 0, 256, false, true)?;
     let props = cookie.reply()?;
     match parse(&props.data) {
@@ -27,7 +36,10 @@ pub fn get_edid<C: Connection>(conn: &C, atom_edid: Atom, output: Output) -> Res
 }
 
 /// A convienience function to complete a RandR getScreenResourcesCurrent request.
-pub fn get_outputs<C: Connection>(conn: &C, root: Window) -> Result<GetScreenResourcesCurrentReply, Box<dyn Error>> {
+pub fn get_outputs<C: Connection>(
+    conn: &C,
+    root: Window,
+) -> Result<GetScreenResourcesCurrentReply, Box<dyn Error>> {
     Ok(conn.randr_get_screen_resources_current(root)?.reply()?)
 }
 
@@ -48,4 +60,9 @@ pub fn get_monitors<'o, C: Connection>(
                 None
             }
         })
+}
+
+/// Get the atom that allows reading an EDID from an output
+pub fn edid_atom<C: Connection>(conn: &C) -> Result<Atom, Box<dyn Error>> {
+    Ok(conn.intern_atom(false, b"EDID")?.reply()?.atom)
 }
