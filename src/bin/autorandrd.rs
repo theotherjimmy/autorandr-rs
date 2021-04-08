@@ -160,17 +160,23 @@ fn apply_config<C: Connection>(
             .into_iter()
             .map(|req| req.send(conn))
             .collect::<std::result::Result<_, _>>()?;
-        let _responses: Vec<SetCrtcConfigReply> = cookies
+        let responses: Vec<SetCrtcConfigReply> = cookies
             .into_iter()
             .map(|cookie| cookie.reply())
             .collect::<std::result::Result<_, _>>()?;
+        let next_timestamp = responses.iter().max_by_key(|reply| reply.timestamp).map(|reply| reply.timestamp);
         // Then we change the screen size
         conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)?
             .check()?;
         // Finally we enable and change modes of CRTCs
         let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = crtc_enables
             .into_iter()
-            .map(|req| req.send(conn))
+            .map(|mut req| {
+                if let &Some(new_ts) = &next_timestamp {
+                    req.timestamp = new_ts;
+                }
+                req.send(conn)
+            })
             .collect::<std::result::Result<_, _>>()?;
         let _responses: Vec<SetCrtcConfigReply> = cookies
             .into_iter()
