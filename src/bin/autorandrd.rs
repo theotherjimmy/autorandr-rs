@@ -38,8 +38,9 @@ fn get_config<'a, C: Connection>(
     } = config.0.get(&monitors)?;
     let mut out = HashMap::with_capacity(setup.len());
     for (output, mon) in out_to_mon.into_iter() {
-        // Unwrap is checked by Config type on creating
-        out.insert(output, setup.get(&mon).unwrap());
+        if let Some(moncfg) = setup.get(&mon) {
+            out.insert(output, moncfg);
+        }
     }
     Some((name, fb_size, out))
 }
