@@ -18,6 +18,8 @@ nom = "3.2"
 toml = "0.5"
 clap = "2.33"
 ansi_term = "0.11"
+log = "0.4"
+stderrlog = "0.5"
 
 [dependencies.serde]
 version = "1.0"
