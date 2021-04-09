@@ -163,15 +163,10 @@ fn apply_config<C: Connection>(
         current.w = std::cmp::max(current.w, crtc_info.x as u16 + crtc_info.width);
         current.h = std::cmp::max(current.h, crtc_info.y as u16 + crtc_info.height);
         if x != crtc_info.x || y != crtc_info.y || mode != crtc_info.mode {
-            let rotation = if crtc_info.rotation != 0 {
-                crtc_info.rotation
-            } else {
-                1
-            };
             enables.push(SetCrtcConfigRequest {
                 x,
                 y,
-                rotation,
+                rotation: 1,
                 mode,
                 outputs: vec![out].into(),
                 ..disable_crtc(dest_crtc, &crtc_info)
