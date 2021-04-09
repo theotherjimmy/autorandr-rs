@@ -27,7 +27,7 @@ pub mod autorandrd {
                 Arg::with_name("verbosity")
                     .short("v")
                     .multiple(true)
-                    .help("Increase message verbosity")
+                    .help("Increase message verbosity"),
             )
     }
 }

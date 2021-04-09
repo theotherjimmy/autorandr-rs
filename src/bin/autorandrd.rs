@@ -4,9 +4,9 @@ use x11rb::{
     connection::Connection,
     cookie::Cookie,
     protocol::randr::{
-        ConnectionExt as RandrExt, GetCrtcInfoReply, GetScreenResourcesCurrentReply, NotifyMask,
-        Output, SetCrtcConfigReply, SetCrtcConfigRequest,
-        Crtc, GetOutputInfoReply,
+        ConnectionExt as RandrExt, Crtc, GetCrtcInfoReply, GetOutputInfoReply,
+        GetScreenResourcesCurrentReply, NotifyMask, Output, SetCrtcConfigReply,
+        SetCrtcConfigRequest,
     },
     protocol::xproto::{Atom, Timestamp, Window},
     protocol::Event,
@@ -85,34 +85,38 @@ fn allocate_crtc(info: &GetOutputInfoReply, free: &mut HashSet<&Crtc>) -> Option
     let dest = if info.crtc != 0 {
         Some(info.crtc)
     } else {
-        info.crtcs
-            .iter()
-            .find_map(|c| free.get(&c).map(|&&a| a))
+        info.crtcs.iter().find_map(|c| free.get(&c).map(|&&a| a))
     };
     if let Some(dest) = &dest {
         free.remove(dest);
     }
     dest
-
 }
 
 /// Find a matching mode id for the output within the mode map.
 ///
 /// Since this is a helper function that's part of a command line utility,
 /// errors are returned as strings
-fn find_mode_id(info: &GetOutputInfoReply, mode_map: &HashMap<Mode, HashSet<u32>>, mode: &Mode) -> Result<u32> {
+fn find_mode_id(
+    info: &GetOutputInfoReply,
+    mode_map: &HashMap<Mode, HashSet<u32>>,
+    mode: &Mode,
+) -> Result<u32> {
     let mode_ids = mode_map
         .get(&mode)
         .ok_or_else(|| format!("desired mode, {}, not found", mode))?;
-    Ok(info.modes
+    Ok(info
+        .modes
         .iter()
         .find_map(|m| mode_ids.get(m).map(|&m| m))
         .ok_or_else(|| format!("out does not support the desired mode, {:?}", mode))?)
-
 }
 
 /// Apply a batch of SetCrtcConfig commands.
-fn batch_config<C: Connection>(conn: &C, batch: Vec<SetCrtcConfigRequest>) -> Result<Option<Timestamp>> {
+fn batch_config<C: Connection>(
+    conn: &C,
+    batch: Vec<SetCrtcConfigRequest>,
+) -> Result<Option<Timestamp>> {
     let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = batch
         .into_iter()
         .map(|req| req.send(conn))
@@ -121,7 +125,10 @@ fn batch_config<C: Connection>(conn: &C, batch: Vec<SetCrtcConfigRequest>) -> Re
         .into_iter()
         .map(|cookie| cookie.reply())
         .collect::<std::result::Result<_, _>>()?;
-    Ok(responses.iter().max_by_key(|reply| reply.timestamp).map(|reply| reply.timestamp))
+    Ok(responses
+        .iter()
+        .max_by_key(|reply| reply.timestamp)
+        .map(|reply| reply.timestamp))
 }
 
 /// Make the current Xorg server match the specified configuration.
@@ -137,8 +144,11 @@ fn apply_config<C: Connection>(
     let mut enables = Vec::with_capacity(res.crtcs.len());
     let mut mm_w = 0;
     let mut mm_h = 0;
-    let mut current = Mode { w: 0, h: 0};
-    let outs_in_conf = res.outputs.iter().filter_map(|o| setup.get(&o).map(|c| (c, o)));
+    let mut current = Mode { w: 0, h: 0 };
+    let outs_in_conf = res
+        .outputs
+        .iter()
+        .filter_map(|o| setup.get(&o).map(|c| (c, o)));
     // This loop can't easily be a map, as it needs to be able to use '?'
     for (&conf, &out) in outs_in_conf {
         let out_info = conn.randr_get_output_info(out, timestamp)?.reply()?;
@@ -190,7 +200,7 @@ fn apply_config<C: Connection>(
         if &current != fb_size {
             current = Mode {
                 w: std::cmp::max(current.w, fb_size.w),
-                h: std::cmp::max(current.h, fb_size.h)
+                h: std::cmp::max(current.h, fb_size.h),
             };
             info!("Setting Screen Size to {}x{}", current.w, current.h);
             conn.randr_set_screen_size(root, current.w, current.h, mm_w, mm_h)?
@@ -198,11 +208,9 @@ fn apply_config<C: Connection>(
         }
         // Finally we enable and change modes of CRTCs
         for en in &mut enables {
-            info!("Configuring CRTC {} to mode {} at {},{}",
-                  en.crtc,
-                  en.mode,
-                  en.x,
-                  en.y,
+            info!(
+                "Configuring CRTC {} to mode {} at {},{}",
+                en.crtc, en.mode, en.x, en.y,
             );
             // NOTE: Updating the timestamps here ensures that any monitors that were
             // disabled in the prior batch config will be available for use here. This
