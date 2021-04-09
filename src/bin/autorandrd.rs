@@ -116,19 +116,16 @@ fn find_mode_id(
 fn batch_config<C: Connection>(
     conn: &C,
     batch: Vec<SetCrtcConfigRequest>,
-) -> Result<Option<Timestamp>> {
+) -> Result<()> {
     let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = batch
         .into_iter()
         .map(|req| req.send(conn))
         .collect::<std::result::Result<_, _>>()?;
-    let responses: Vec<SetCrtcConfigReply> = cookies
+    let _responses: Vec<SetCrtcConfigReply> = cookies
         .into_iter()
         .map(|cookie| cookie.reply())
         .collect::<std::result::Result<_, _>>()?;
-    Ok(responses
-        .iter()
-        .max_by_key(|reply| reply.timestamp)
-        .map(|reply| reply.timestamp))
+    Ok(())
 }
 
 /// Make the current Xorg server match the specified configuration.
@@ -190,8 +187,8 @@ fn apply_config<C: Connection>(
         for dis in &disables {
             info!("Disabling CRTC {}", dis.crtc);
         }
-        let next_timestamp = batch_config(conn, disables)?;
-        // Then we change the screen size
+        batch_config(conn, disables)?;
+        // Then we change the screen size to be large enough for both configuration
         if &current != fb_size {
             current = Mode {
                 w: std::cmp::max(current.w, fb_size.w),
@@ -202,19 +199,14 @@ fn apply_config<C: Connection>(
                 .check()?;
         }
         // Finally we enable and change modes of CRTCs
-        for en in &mut enables {
+        for en in &enables {
             info!(
                 "Configuring CRTC {} to mode {} at {},{}",
                 en.crtc, en.mode, en.x, en.y,
             );
-            // NOTE: Updating the timestamps here ensures that any monitors that were
-            // disabled in the prior batch config will be available for use here. This
-            // allows us to break-then-make configurations
-            if let &Some(new_ts) = &next_timestamp {
-                en.timestamp = new_ts;
-            }
         }
-        let _ = batch_config(conn, enables)?;
+        batch_config(conn, enables)?;
+        // Lastly we change the screen size to be the correct size for the final config
         if &current != fb_size {
             conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)?
                 .check()?;
