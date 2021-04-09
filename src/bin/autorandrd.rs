@@ -6,6 +6,7 @@ use x11rb::{
     protocol::randr::{
         ConnectionExt as RandrExt, GetCrtcInfoReply, GetScreenResourcesCurrentReply, NotifyMask,
         Output, SetCrtcConfigReply, SetCrtcConfigRequest,
+        Crtc, GetOutputInfoReply,
     },
     protocol::xproto::{Atom, Timestamp, Window},
     protocol::Event,
@@ -79,6 +80,50 @@ fn disable_crtc<'a, 'b>(crtc: u32, from: &'a GetCrtcInfoReply) -> SetCrtcConfigR
     }
 }
 
+/// Allocate a CRTC for use by an output.
+fn allocate_crtc(info: &GetOutputInfoReply, free: &mut HashSet<&Crtc>) -> Option<Crtc> {
+    let dest = if info.crtc != 0 {
+        Some(info.crtc)
+    } else {
+        info.crtcs
+            .iter()
+            .find_map(|c| free.get(&c).map(|&&a| a))
+    };
+    if let Some(dest) = &dest {
+        free.remove(dest);
+    }
+    dest
+
+}
+
+/// Find a matching mode id for the output within the mode map.
+///
+/// Since this is a helper function that's part of a command line utility,
+/// errors are returned as strings
+fn find_mode_id(info: &GetOutputInfoReply, mode_map: &HashMap<Mode, HashSet<u32>>, mode: &Mode) -> Result<u32> {
+    let mode_ids = mode_map
+        .get(&mode)
+        .ok_or_else(|| format!("desired mode, {}, not found", mode))?;
+    Ok(info.modes
+        .iter()
+        .find_map(|m| mode_ids.get(m).map(|&m| m))
+        .ok_or_else(|| format!("out does not support the desired mode, {:?}", mode))?)
+
+}
+
+/// Apply a batch of SetCrtcConfig commands.
+fn batch_config<C: Connection>(conn: &C, batch: Vec<SetCrtcConfigRequest>) -> Result<Option<Timestamp>> {
+    let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = batch
+        .into_iter()
+        .map(|req| req.send(conn))
+        .collect::<std::result::Result<_, _>>()?;
+    let responses: Vec<SetCrtcConfigReply> = cookies
+        .into_iter()
+        .map(|cookie| cookie.reply())
+        .collect::<std::result::Result<_, _>>()?;
+    Ok(responses.iter().max_by_key(|reply| reply.timestamp).map(|reply| reply.timestamp))
+}
+
 /// Make the current Xorg server match the specified configuration.
 fn apply_config<C: Connection>(
     conn: &C,
@@ -89,40 +134,22 @@ fn apply_config<C: Connection>(
 ) -> Result<bool> {
     let (modes, timestamp) = mode_map(conn, root)?;
     let mut free_crtcs: HashSet<_> = res.crtcs.iter().collect();
-    let _primary = conn.randr_get_output_primary(root)?.reply()?.output;
     let mut enables = Vec::with_capacity(res.crtcs.len());
     let mut mm_w = 0;
     let mut mm_h = 0;
     let mut current = Mode { w: 0, h: 0};
-    // This loop can't easily be a filter_map, as it needs to be able to use '?'
-    for &out in &res.outputs {
-        let conf = match setup.get(&out) {
-            Some(c) => c,
-            None => continue, // Skip this output; it's not in the setup
-        };
-        let mode_ids = modes
-            .get(&conf.mode)
-            .ok_or_else(|| format!("desired mode, {}, not found", conf.mode))?;
+    let outs_in_conf = res.outputs.iter().filter_map(|o| setup.get(&o).map(|c| (c, o)));
+    // This loop can't easily be a map, as it needs to be able to use '?'
+    for (&conf, &out) in outs_in_conf {
         let out_info = conn.randr_get_output_info(out, timestamp)?.reply()?;
-        let mode = *out_info
-            .modes
-            .iter()
-            .find(|&m| mode_ids.contains(m))
-            .ok_or_else(|| format!("out does not support the desired mode, {:?}", conf.mode))?;
-        let dest_crtc = if out_info.crtc != 0 {
-            out_info.crtc
-        } else {
-            *out_info
-                .crtcs
-                .iter()
-                .find(|&c| free_crtcs.contains(c))
-                .ok_or_else(|| format!("No Crtc available for monitor id {}", out))?
-        };
-        let crtc_info = conn.randr_get_crtc_info(dest_crtc, timestamp)?.reply()?;
+        let mode = find_mode_id(&out_info, &modes, &conf.mode)?;
+        let dest_crtc = allocate_crtc(&out_info, &mut free_crtcs)
+            .ok_or_else(|| format!("No Crtc available for monitor id {}", out))?;
         //TODO: This is not a correct computation of the screen size
         mm_w += out_info.mm_width;
         mm_h += out_info.mm_height;
         let Position { x, y } = conf.position;
+        let crtc_info = conn.randr_get_crtc_info(dest_crtc, timestamp)?.reply()?;
         current.w = std::cmp::max(current.w, crtc_info.x as u16 + crtc_info.width);
         current.h = std::cmp::max(current.h, crtc_info.y as u16 + crtc_info.height);
         if x != crtc_info.x || y != crtc_info.y || mode != crtc_info.mode {
@@ -140,7 +167,6 @@ fn apply_config<C: Connection>(
                 ..disable_crtc(dest_crtc, &crtc_info)
             });
         }
-        free_crtcs.remove(&dest_crtc);
     }
     // If there were CRTCs left over after allocating the next setup, ensure that they are
     // disabled
@@ -159,15 +185,7 @@ fn apply_config<C: Connection>(
         for dis in &disables {
             info!("Disabling CRTC {}", dis.crtc);
         }
-        let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = disables
-            .into_iter()
-            .map(|req| req.send(conn))
-            .collect::<std::result::Result<_, _>>()?;
-        let responses: Vec<SetCrtcConfigReply> = cookies
-            .into_iter()
-            .map(|cookie| cookie.reply())
-            .collect::<std::result::Result<_, _>>()?;
-        let next_timestamp = responses.iter().max_by_key(|reply| reply.timestamp).map(|reply| reply.timestamp);
+        let next_timestamp = batch_config(conn, disables)?;
         // Then we change the screen size
         if &current != fb_size {
             current = Mode {
@@ -179,27 +197,21 @@ fn apply_config<C: Connection>(
                 .check()?;
         }
         // Finally we enable and change modes of CRTCs
-        for en in &enables {
+        for en in &mut enables {
             info!("Configuring CRTC {} to mode {} at {},{}",
                   en.crtc,
                   en.mode,
                   en.x,
                   en.y,
             );
+            // NOTE: Updating the timestamps here ensures that any monitors that were
+            // disabled in the prior batch config will be available for use here. This
+            // allows us to break-then-make configurations
+            if let &Some(new_ts) = &next_timestamp {
+                en.timestamp = new_ts;
+            }
         }
-        let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = enables
-            .into_iter()
-            .map(|mut req| {
-                if let &Some(new_ts) = &next_timestamp {
-                    req.timestamp = new_ts;
-                }
-                req.send(conn)
-            })
-            .collect::<std::result::Result<_, _>>()?;
-        let _responses: Vec<SetCrtcConfigReply> = cookies
-            .into_iter()
-            .map(|cookie| cookie.reply())
-            .collect::<std::result::Result<_, _>>()?;
+        let _ = batch_config(conn, enables)?;
         if &current != fb_size {
             conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)?
                 .check()?;
