@@ -93,6 +93,8 @@ fn apply_config<C: Connection>(
     let mut crtc_enables = Vec::with_capacity(res.crtcs.len());
     let mut mm_w = 0;
     let mut mm_h = 0;
+    let mut inter_w = 0;
+    let mut inter_h = 0;
     // This loop can't easily be a filter_map, as it needs to be able to use '?'
     for &out in &res.outputs {
         let conf = match setup.get(&out) {
@@ -122,12 +124,11 @@ fn apply_config<C: Connection>(
         mm_w += out_info.mm_width;
         mm_h += out_info.mm_height;
         let Position { x, y } = conf.position;
+        inter_w = std::cmp::max(inter_w, x as u16 + conf.mode.w);
+        inter_w = std::cmp::max(inter_w, crtc_info.x as u16 + crtc_info.width);
+        inter_h = std::cmp::max(inter_h, y as u16 + conf.mode.h);
+        inter_h = std::cmp::max(inter_h, crtc_info.y as u16 + crtc_info.height);
         if x != crtc_info.x || y != crtc_info.y || mode != crtc_info.mode {
-            // We're being conservative with screen changes in that we're disabling
-            // any active CTRCs before they move or resize.
-            if crtc_info.mode != 0 {
-                crtc_disables.push(disable_crtc(dest_crtc, &crtc_info));
-            }
             let rotation = if crtc_info.rotation != 0 {
                 crtc_info.rotation
             } else {
@@ -167,7 +168,7 @@ fn apply_config<C: Connection>(
             .collect::<std::result::Result<_, _>>()?;
         let next_timestamp = responses.iter().max_by_key(|reply| reply.timestamp).map(|reply| reply.timestamp);
         // Then we change the screen size
-        conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)?
+        conn.randr_set_screen_size(root, inter_w, inter_h, mm_w, mm_h)?
             .check()?;
         // Finally we enable and change modes of CRTCs
         let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = crtc_enables
@@ -183,6 +184,8 @@ fn apply_config<C: Connection>(
             .into_iter()
             .map(|cookie| cookie.reply())
             .collect::<std::result::Result<_, _>>()?;
+        conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)?
+            .check()?;
         Ok(true)
     }
 }
