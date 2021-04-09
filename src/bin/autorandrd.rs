@@ -117,6 +117,16 @@ fn batch_config<C: Connection>(
     conn: &C,
     batch: Vec<SetCrtcConfigRequest>,
 ) -> Result<()> {
+    for req in &batch {
+        if req.mode != 0 {
+            info!(
+                "Configuring CRTC {} to mode {} at {},{}",
+                req.crtc, req.mode, req.x, req.y,
+            );
+        } else {
+            info!("Disabling CRTC {}", req.crtc);
+        }
+    }
     let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = batch
         .into_iter()
         .map(|req| req.send(conn))
@@ -184,9 +194,6 @@ fn apply_config<C: Connection>(
         Ok(false)
     } else {
         // First, we disable any CTRCs that must be disabled
-        for dis in &disables {
-            info!("Disabling CRTC {}", dis.crtc);
-        }
         batch_config(conn, disables)?;
         // Then we change the screen size to be large enough for both configuration
         if &current != fb_size {
@@ -199,12 +206,6 @@ fn apply_config<C: Connection>(
                 .check()?;
         }
         // Finally we enable and change modes of CRTCs
-        for en in &enables {
-            info!(
-                "Configuring CRTC {} to mode {} at {},{}",
-                en.crtc, en.mode, en.x, en.y,
-            );
-        }
         batch_config(conn, enables)?;
         // Lastly we change the screen size to be the correct size for the final config
         if &current != fb_size {
