@@ -23,6 +23,12 @@ pub mod autorandrd {
                     .long("check")
                     .help("The configuration file in TOML"),
             )
+            .arg(
+                Arg::with_name("verbosity")
+                    .short("v")
+                    .multiple(true)
+                    .help("Increase message verbosity")
+            )
     }
 }
 

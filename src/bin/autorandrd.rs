@@ -1,3 +1,4 @@
+use log::info;
 use x11rb::{
     connect,
     connection::Connection,
@@ -158,6 +159,9 @@ fn apply_config<C: Connection>(
         Ok(false)
     } else {
         // First, we disable any CTRCs that must be disabled
+        for dis in &crtc_disables {
+            info!("Disabling CRTC {}", dis.crtc);
+        }
         let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = crtc_disables
             .into_iter()
             .map(|req| req.send(conn))
@@ -168,9 +172,18 @@ fn apply_config<C: Connection>(
             .collect::<std::result::Result<_, _>>()?;
         let next_timestamp = responses.iter().max_by_key(|reply| reply.timestamp).map(|reply| reply.timestamp);
         // Then we change the screen size
+        info!("Setting Screen Size {}x{}", inter_w, inter_h);
         conn.randr_set_screen_size(root, inter_w, inter_h, mm_w, mm_h)?
             .check()?;
         // Finally we enable and change modes of CRTCs
+        for en in &crtc_enables {
+            info!("Configuring CRTC {} to mode {} at {},{}",
+                  en.crtc,
+                  en.mode,
+                  en.x,
+                  en.y,
+            );
+        }
         let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = crtc_enables
             .into_iter()
             .map(|mut req| {
@@ -186,6 +199,7 @@ fn apply_config<C: Connection>(
             .collect::<std::result::Result<_, _>>()?;
         conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)?
             .check()?;
+        info!("Setting Screen Size {}x{}", fb_size.w, fb_size.h);
         Ok(true)
     }
 }
@@ -233,6 +247,11 @@ fn main() {
     // is not provided.
     let config_name = args.value_of("config").unwrap();
     let config = Config::from_fname_or_exit(&config_name);
+    stderrlog::new()
+        .verbosity(args.occurrences_of("verbosity") as usize)
+        .timestamp(stderrlog::Timestamp::Off)
+        .init()
+        .unwrap();
     if !args.is_present("check") {
         let (conn, screen_num) = ok_or_exit(connect(None), |e| {
             eprintln!("Could not connect to X server: {}", e);
