@@ -90,8 +90,7 @@ fn apply_config<C: Connection>(
     let (modes, timestamp) = mode_map(conn, root)?;
     let mut free_crtcs: HashSet<_> = res.crtcs.iter().collect();
     let _primary = conn.randr_get_output_primary(root)?.reply()?.output;
-    let mut crtc_disables = Vec::with_capacity(res.crtcs.len());
-    let mut crtc_enables = Vec::with_capacity(res.crtcs.len());
+    let mut enables = Vec::with_capacity(res.crtcs.len());
     let mut mm_w = 0;
     let mut mm_h = 0;
     let mut current = Mode { w: 0, h: 0};
@@ -132,7 +131,7 @@ fn apply_config<C: Connection>(
             } else {
                 1
             };
-            crtc_enables.push(SetCrtcConfigRequest {
+            enables.push(SetCrtcConfigRequest {
                 x,
                 y,
                 rotation,
@@ -145,21 +144,22 @@ fn apply_config<C: Connection>(
     }
     // If there were CRTCs left over after allocating the next setup, ensure that they are
     // disabled
+    let mut disables = Vec::with_capacity(free_crtcs.len());
     for &crtc in free_crtcs.into_iter() {
         let info = conn.randr_get_crtc_info(crtc, timestamp)?.reply()?;
         if !info.outputs.is_empty() || info.mode != 0 {
-            crtc_disables.push(disable_crtc(crtc, &info));
+            disables.push(disable_crtc(crtc, &info));
         }
     }
 
-    if crtc_disables.is_empty() && crtc_enables.is_empty() {
+    if disables.is_empty() && enables.is_empty() {
         Ok(false)
     } else {
         // First, we disable any CTRCs that must be disabled
-        for dis in &crtc_disables {
+        for dis in &disables {
             info!("Disabling CRTC {}", dis.crtc);
         }
-        let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = crtc_disables
+        let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = disables
             .into_iter()
             .map(|req| req.send(conn))
             .collect::<std::result::Result<_, _>>()?;
@@ -179,7 +179,7 @@ fn apply_config<C: Connection>(
                 .check()?;
         }
         // Finally we enable and change modes of CRTCs
-        for en in &crtc_enables {
+        for en in &enables {
             info!("Configuring CRTC {} to mode {} at {},{}",
                   en.crtc,
                   en.mode,
@@ -187,7 +187,7 @@ fn apply_config<C: Connection>(
                   en.y,
             );
         }
-        let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = crtc_enables
+        let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = enables
             .into_iter()
             .map(|mut req| {
                 if let &Some(new_ts) = &next_timestamp {
