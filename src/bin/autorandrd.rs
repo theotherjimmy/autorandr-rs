@@ -94,8 +94,7 @@ fn apply_config<C: Connection>(
     let mut crtc_enables = Vec::with_capacity(res.crtcs.len());
     let mut mm_w = 0;
     let mut mm_h = 0;
-    let mut inter_w = 0;
-    let mut inter_h = 0;
+    let mut current = Mode { w: 0, h: 0};
     // This loop can't easily be a filter_map, as it needs to be able to use '?'
     for &out in &res.outputs {
         let conf = match setup.get(&out) {
@@ -125,10 +124,8 @@ fn apply_config<C: Connection>(
         mm_w += out_info.mm_width;
         mm_h += out_info.mm_height;
         let Position { x, y } = conf.position;
-        inter_w = std::cmp::max(inter_w, x as u16 + conf.mode.w);
-        inter_w = std::cmp::max(inter_w, crtc_info.x as u16 + crtc_info.width);
-        inter_h = std::cmp::max(inter_h, y as u16 + conf.mode.h);
-        inter_h = std::cmp::max(inter_h, crtc_info.y as u16 + crtc_info.height);
+        current.w = std::cmp::max(current.w, crtc_info.x as u16 + crtc_info.width);
+        current.h = std::cmp::max(current.h, crtc_info.y as u16 + crtc_info.height);
         if x != crtc_info.x || y != crtc_info.y || mode != crtc_info.mode {
             let rotation = if crtc_info.rotation != 0 {
                 crtc_info.rotation
@@ -172,9 +169,15 @@ fn apply_config<C: Connection>(
             .collect::<std::result::Result<_, _>>()?;
         let next_timestamp = responses.iter().max_by_key(|reply| reply.timestamp).map(|reply| reply.timestamp);
         // Then we change the screen size
-        info!("Setting Screen Size {}x{}", inter_w, inter_h);
-        conn.randr_set_screen_size(root, inter_w, inter_h, mm_w, mm_h)?
-            .check()?;
+        if &current != fb_size {
+            current = Mode {
+                w: std::cmp::max(current.w, fb_size.w),
+                h: std::cmp::max(current.h, fb_size.h)
+            };
+            info!("Setting Screen Size to {}x{}", current.w, current.h);
+            conn.randr_set_screen_size(root, current.w, current.h, mm_w, mm_h)?
+                .check()?;
+        }
         // Finally we enable and change modes of CRTCs
         for en in &crtc_enables {
             info!("Configuring CRTC {} to mode {} at {},{}",
@@ -197,9 +200,11 @@ fn apply_config<C: Connection>(
             .into_iter()
             .map(|cookie| cookie.reply())
             .collect::<std::result::Result<_, _>>()?;
-        conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)?
-            .check()?;
-        info!("Setting Screen Size {}x{}", fb_size.w, fb_size.h);
+        if &current != fb_size {
+            conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)?
+                .check()?;
+            info!("Setting Screen Size to {}x{}", fb_size.w, fb_size.h);
+        }
         Ok(true)
     }
 }
