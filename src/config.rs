@@ -50,6 +50,16 @@ pub struct Mode {
     pub h: u16,
 }
 
+impl Mode {
+    /// Create a mode that may contain both modes self and other
+    pub fn union(&self, other: &Self) -> Self {
+        Self {
+            w: std::cmp::max(self.w, other.w),
+            h: std::cmp::max(self.h, other.h),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for Mode {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = <&str>::deserialize(deserializer)?;

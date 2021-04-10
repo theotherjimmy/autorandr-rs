@@ -167,8 +167,10 @@ fn apply_config<C: Connection>(
         mm_h += out_info.mm_height;
         let Position { x, y } = conf.position;
         let crtc_info = conn.randr_get_crtc_info(dest_crtc, timestamp)?.reply()?;
-        current.w = std::cmp::max(current.w, crtc_info.x as u16 + crtc_info.width);
-        current.h = std::cmp::max(current.h, crtc_info.y as u16 + crtc_info.height);
+        current = current.union(&Mode{
+            w: crtc_info.x as u16 + crtc_info.width,
+            h: crtc_info.y as u16 + crtc_info.height,
+        });
         if x != crtc_info.x || y != crtc_info.y || mode != crtc_info.mode {
             enables.push(SetCrtcConfigRequest {
                 x,
@@ -197,10 +199,7 @@ fn apply_config<C: Connection>(
         batch_config(conn, disables)?;
         // Then we change the screen size to be large enough for both configuration
         if &current != fb_size {
-            current = Mode {
-                w: std::cmp::max(current.w, fb_size.w),
-                h: std::cmp::max(current.h, fb_size.h),
-            };
+            current = current.union(fb_size);
             info!("Setting Screen Size to {}x{}", current.w, current.h);
             conn.randr_set_screen_size(root, current.w, current.h, mm_w, mm_h)?
                 .check()?;
