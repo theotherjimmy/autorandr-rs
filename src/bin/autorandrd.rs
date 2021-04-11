@@ -1,11 +1,11 @@
-use log::info;
+use log::{error, info};
 use x11rb::{
     connect,
     connection::Connection,
     cookie::Cookie,
     protocol::randr::{
         ConnectionExt as RandrExt, Crtc, GetCrtcInfoReply, GetOutputInfoReply,
-        GetScreenResourcesCurrentReply, NotifyMask, Output, SetCrtcConfigReply,
+        GetScreenResourcesCurrentReply, NotifyMask, Output, SetConfig, SetCrtcConfigReply,
         SetCrtcConfigRequest,
     },
     protocol::xproto::{Atom, Timestamp, Window},
@@ -113,10 +113,7 @@ fn find_mode_id(
 }
 
 /// Apply a batch of SetCrtcConfig commands.
-fn batch_config<C: Connection>(
-    conn: &C,
-    batch: Vec<SetCrtcConfigRequest>,
-) -> Result<()> {
+fn batch_config<C: Connection>(conn: &C, batch: Vec<SetCrtcConfigRequest>) -> Result<()> {
     for req in &batch {
         if req.mode != 0 {
             info!(
@@ -131,10 +128,20 @@ fn batch_config<C: Connection>(
         .into_iter()
         .map(|req| req.send(conn))
         .collect::<std::result::Result<_, _>>()?;
-    let _responses: Vec<SetCrtcConfigReply> = cookies
+    let responses: Vec<SetCrtcConfigReply> = cookies
         .into_iter()
         .map(|cookie| cookie.reply())
         .collect::<std::result::Result<_, _>>()?;
+    for (num, res) in responses.iter().enumerate() {
+        match res.status {
+            SetConfig::INVALID_CONFIG_TIME => {
+                error!("Request #{} failed with invalid config time", num)
+            }
+            SetConfig::INVALID_TIME => error!("Request #{} failed with invalid time", num),
+            SetConfig::FAILED => error!("Request #{} failed", num),
+            _ => (),
+        }
+    }
     Ok(())
 }
 
