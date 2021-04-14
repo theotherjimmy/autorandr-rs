@@ -194,17 +194,17 @@ fn apply_config<C: Connection>(
         }
     }
 
-    if disables.is_empty() && enables.is_empty() {
+    let geom = conn.get_geometry(root)?.reply()?;
+    let mut current = Mode { w: geom.width, h: geom.height };
+    if disables.is_empty() && enables.is_empty() && &current == fb_size {
         Ok(false)
     } else {
-        let geom = conn.get_geometry(root)?.reply()?;
-        let mut current = Mode { w: geom.width, h: geom.height };
         // First, we disable any CTRCs that must be disabled
         batch_config(conn, disables)?;
         // Then we change the screen size to be large enough for both configuration
-        if &current != fb_size {
+        if current != current.union(fb_size) {
             current = current.union(fb_size);
-            info!("Setting Screen Size to {}x{}", current.w, current.h);
+            info!("Before Config - Setting Screen Size to {}x{}", current.w, current.h);
             conn.randr_set_screen_size(root, current.w, current.h, mm_w, mm_h)?
                 .check()?;
         }
@@ -214,7 +214,7 @@ fn apply_config<C: Connection>(
         if &current != fb_size {
             conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)?
                 .check()?;
-            info!("Setting Screen Size to {}x{}", fb_size.w, fb_size.h);
+            info!("After Config - Setting Screen Size to {}x{}", fb_size.w, fb_size.h);
         }
         Ok(true)
     }
@@ -245,7 +245,7 @@ fn switch_setup<C: Connection>(
             }
             Err(e) => eprintln!("Error: {}", e),
         },
-        None => eprintln!(
+        None => error!(
             "Error: Monitor change indicated, and the connected monitors did not match a config"
         ),
     }
