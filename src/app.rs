@@ -6,7 +6,7 @@ pub mod autorandrd {
 
     pub fn args() -> App<'static, 'static> {
         App::new(NAME)
-            .version("0.2")
+            .version("0.3")
             .about(
                 "Watches for changes in connected monitors and switches configurations with EDIDs",
             )
@@ -38,7 +38,7 @@ pub mod randr_edid {
 
     pub fn args() -> App<'static, 'static> {
         App::new(NAME)
-            .version("0.2")
+            .version("0.3")
             .about("Print the EDIDs of all attached monitors in an autorandrd(5) compatible format")
     }
 }
