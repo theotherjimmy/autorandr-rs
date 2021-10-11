@@ -2,83 +2,63 @@ autorandrd(5)
 
 # NAME
 
-*autorandrd.toml* - configuration file for *autorandrd*
+*autorandrd.kdl* - configuration file for *autorandrd*
 
 
 # SYNTAX
 
-The *autorandrd.toml* file is in TOML format.
-See https://toml.io for more information.
+The *autorandrd.kdl* file is in KDL format.
+See https://kdl.dev for more information.
 
 
-# SUPPORTED KEYS
+# SUPPORTED NODES
 
-*monitors*
-	This section specifies a mapping from _aliases_ to more detailed
-	monitor information.
+*monitor*
+	This node specifies a single monitor.
+	This node accepts a required, positional parameter, the monitor's _alias_, 
+	and two optional properties, the _product_ name and the _serial_ number.
 
-*monitors.*_<alias>_
-	Each subsection of the *monitors* section creates an alias for a monitor
-	and describes how to match that _alias_ based on it's EDID.
-	The name of the monitor may not be "_monitors_", as that conflicts with
-	another key in the *configurations.*_<name>_ section.
-
-*monitors.*_<alias>_*.product*
-	This matches the product name of the monitor.
+	The _product_ matches the product name of the monitor.
 	For example, the author owns an Acer K272HUL monitor which reports its
 	product as "Acer K272HUL" and a Samsung S27D850 that reports "S27D850".
 	This field is treated as an opaque string that matches a parsed EDID.
-	This field is required.
-	At the time of writing the author cannot recomend a tool to dump this
-	information.
 
-*monitors.*_<alias>_*.serial*
-	This matches the serial "number" of the monitor.
+	The _serial_ matches the serial number of the monitor.
 	For example, the author owns an Acer K272HUL monitor which reports its
 	product serial as "T0SAA0014200".
 	This feild is treated as an opaque string that matches a parsed EDID.
-	This field is required.
-	At the time of writing the author cannot recomend a tool to dump this
-	information.
 
-*configurations*
-	This section specifies an unordered set of configurations.
+	For a tool that dumps this information, see *randr-edid*(1)
 
-*configurations.*_<name>_
-	This section specifies a single, named configuraiton and set of _aliases_
-	that, when attached, trigger *autorandrd* to apply this configuration.
-	The _name_ has no restrictions.
+*layout*
+	This node specifies a layout of monitors that should be automatically
+	configured.
+	The _layout_ node accepts a single positional parameter, it's name, and
+	a series of children nodes that may either be _matches_ or _monitor_
 
-*configurations.*_<name>_*.monitors*
-	This key specifies a set of _aliases_ to match as an array.
-	When the monitors in the set of _aliases_ are attached, this configuration
-	is applied to the X11 server.
-	If two configurations have the same set of monitor _aliases_, it is
-	unspecified which configuration _name_ will be applied at runtime.
-	This field is required.
+*layout.matches*
+	This node specifies which monitors, by _alias_, must be connected to
+	apply this layout.
+	It accepts the list of monitor _aliases_ as a sequence of postional
+	parameters.
 
-*configurations.*_<name>_*.*_<alias>_
-	This section configures the monitor matching _alias_ as part of the
-	configuration _name_.
+*layout.monitor*
+	This node specifies the geometry of a single monitor.
+	*layout.monitor* accepts an _alias_ as its only positional parameter,
+	and 5 properties, _w_, _h_, _x_, _y_ and _primary_.
+	All properties are mandatory, except for _primary_, which defaults to
+	false when not present.
+	The _w_ and _h_ specifiy the width and height of the mode to select for
+	this monitor respectively.
+	The _x_ and _y_ specifiy the offset from the 0,0 coodinate.
+	_primary_ specifies that this monitor should become the primary monitor
+	when this layout is enabled.
+	It is unspecified what happens when multiple *layout.montor* nodes within
+	the same *layout* specify _prymary_ as true.
 
-*configurations.*_<name>_*.*_<alias>_*.mode*
-	Specify the mode of the attached monitor, _alias_.
-	This is formatted as *<width>*x*<height>*.
-	*width* and *height* are limited to the range available to a _u16_.
-	This field is required.
-
-*configurations.*_<name>_*.*_<alias>_*.position*
-	Specify the absolute position of the attached monitor, _alias_.
-	This is formatted as *<x>*x*<y>*.
-	*x* and *y* are limited to the range available to an _i16_.
-	This field is required.
-
-*configurations.*_<name>_*.*_<alias>_*.primary*
-	Specifiy that the monitor _alias_ is the primary disply.
-	This field is optional and defaults to _false_.
 
 # SEE ALSO
-*autorandrd*(1)
+*autorandrd*(1) *randr-edid*(1)
 
 # AUTHORS
 Maintained by Jimmy Brisson. Up to date sources can be found at

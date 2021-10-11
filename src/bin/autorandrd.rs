@@ -12,15 +12,24 @@ use x11rb::{
     protocol::Event,
 };
 
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-};
+use std::collections::{HashMap, HashSet};
+
+use miette::{IntoDiagnostic, Result};
+use thiserror::Error;
 
 use autorandr_rs::config::{Config, Mode, MonConfig, Position, SingleConfig};
 use autorandr_rs::{app, edid_atom, get_monitors, get_outputs, ok_or_exit};
 
-type Result<T> = std::result::Result<T, Box<dyn Error>>;
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("Mode {0} not found")]
+    ModeNotFound(Mode),
+    #[error("Mode {0} not supported")]
+    ModeNotSupported(Mode),
+    #[error("No Crtc available for monitor {0}")]
+    NoCrtc(String),
+}
+
 
 /// Find the config that matches the attached monitors. On a match, this returns a tuple of
 /// (name, frame buffer size, map from output to output config).
@@ -52,7 +61,7 @@ fn mode_map<C: Connection>(
     conn: &C,
     root: Window,
 ) -> Result<(HashMap<Mode, HashSet<u32>>, Timestamp)> {
-    let resources = conn.randr_get_screen_resources(root)?.reply()?;
+    let resources = conn.randr_get_screen_resources(root).into_diagnostic()?.reply().into_diagnostic()?;
     let mut modes: HashMap<_, HashSet<u32>> = HashMap::with_capacity(resources.modes.len());
     for mi in resources.modes.iter() {
         modes
@@ -104,12 +113,11 @@ fn find_mode_id(
 ) -> Result<u32> {
     let mode_ids = mode_map
         .get(&mode)
-        .ok_or_else(|| format!("desired mode, {}, not found", mode))?;
-    Ok(info
-        .modes
+        .ok_or_else(|| Error::ModeNotFound(mode.clone())).into_diagnostic()?;
+    info.modes
         .iter()
         .find_map(|m| mode_ids.get(m).map(|&m| m))
-        .ok_or_else(|| format!("out does not support the desired mode, {:?}", mode))?)
+        .ok_or_else(|| Error::ModeNotSupported(mode.clone())).into_diagnostic()
 }
 
 /// Apply a batch of SetCrtcConfig commands.
@@ -124,14 +132,19 @@ fn batch_config<C: Connection>(conn: &C, batch: Vec<SetCrtcConfigRequest>) -> Re
             info!("Disabling CRTC {}", req.crtc);
         }
     }
+    info!("Batch pre-sent");
     let cookies: Vec<Cookie<C, SetCrtcConfigReply>> = batch
         .into_iter()
         .map(|req| req.send(conn))
-        .collect::<std::result::Result<_, _>>()?;
+        .collect::<std::result::Result<_, _>>()
+        .into_diagnostic()?;
+    info!("Batch sent");
     let responses: Vec<SetCrtcConfigReply> = cookies
         .into_iter()
         .map(|cookie| cookie.reply())
-        .collect::<std::result::Result<_, _>>()?;
+        .collect::<std::result::Result<_, _>>()
+        .into_diagnostic()?;
+    info!("Batch recieved");
     for (num, res) in responses.iter().enumerate() {
         match res.status {
             SetConfig::INVALID_CONFIG_TIME => {
@@ -164,15 +177,16 @@ fn apply_config<C: Connection>(
         .filter_map(|o| setup.get(&o).map(|c| (c, o)));
     // This loop can't easily be a map, as it needs to be able to use '?'
     for (&conf, &out) in outs_in_conf {
-        let out_info = conn.randr_get_output_info(out, timestamp)?.reply()?;
+        let out_info = conn.randr_get_output_info(out, timestamp).into_diagnostic()?.reply().into_diagnostic()?;
         let mode = find_mode_id(&out_info, &modes, &conf.mode)?;
         let dest_crtc = allocate_crtc(&out_info, &mut free_crtcs)
-            .ok_or_else(|| format!("No Crtc available for monitor id {}", out))?;
+            .ok_or_else(|| Error::NoCrtc(conf.name.clone()))
+            .into_diagnostic()?;
         //TODO: This is not a correct computation of the screen size
         mm_w += out_info.mm_width;
         mm_h += out_info.mm_height;
         let Position { x, y } = conf.position;
-        let crtc_info = conn.randr_get_crtc_info(dest_crtc, timestamp)?.reply()?;
+        let crtc_info = conn.randr_get_crtc_info(dest_crtc, timestamp).into_diagnostic()?.reply().into_diagnostic()?;
         if x != crtc_info.x || y != crtc_info.y || mode != crtc_info.mode {
             enables.push(SetCrtcConfigRequest {
                 x,
@@ -188,32 +202,39 @@ fn apply_config<C: Connection>(
     // disabled
     let mut disables = Vec::with_capacity(free_crtcs.len());
     for &crtc in free_crtcs.into_iter() {
-        let info = conn.randr_get_crtc_info(crtc, timestamp)?.reply()?;
+        let info = conn.randr_get_crtc_info(crtc, timestamp).into_diagnostic()?.reply().into_diagnostic()?;
         if !info.outputs.is_empty() || info.mode != 0 {
             disables.push(disable_crtc(crtc, &info));
         }
     }
 
-    let geom = conn.get_geometry(root)?.reply()?;
+    let geom = conn.get_geometry(root).into_diagnostic()?.reply().into_diagnostic()?;
     let mut current = Mode { w: geom.width, h: geom.height };
     if disables.is_empty() && enables.is_empty() && &current == fb_size {
         Ok(false)
     } else {
         // First, we disable any CTRCs that must be disabled
-        batch_config(conn, disables)?;
+        if !disables.is_empty() {
+            info!("Disabling CRTCs {:?}", disables);
+            batch_config(conn, disables)?;
+        }
         // Then we change the screen size to be large enough for both configuration
         if current != current.union(fb_size) {
             current = current.union(fb_size);
-            info!("Before Config - Setting Screen Size to {}x{}", current.w, current.h);
-            conn.randr_set_screen_size(root, current.w, current.h, mm_w, mm_h)?
-                .check()?;
+            info!("Before Config - Setting Screen {} Size to {}x{} {}mmx{}mm", root, current.w, current.h, mm_w, mm_h);
+            conn.randr_set_screen_size(root, current.w, current.h, mm_w, mm_h)
+                .into_diagnostic()?
+                .check()
+                .into_diagnostic()?;
         }
         // Finally we enable and change modes of CRTCs
         batch_config(conn, enables)?;
         // Lastly we change the screen size to be the correct size for the final config
         if &current != fb_size {
-            conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)?
-                .check()?;
+            conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)
+                .into_diagnostic()?
+                .check()
+                .into_diagnostic()?;
             info!("After Config - Setting Screen Size to {}x{}", fb_size.w, fb_size.h);
         }
         Ok(true)
@@ -232,7 +253,7 @@ fn switch_setup<C: Connection>(
     let res = match get_outputs(conn, root) {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("Error: Could not get outputs because {}", e);
+            error!("{:?}", e);
             return;
         }
     };
@@ -243,7 +264,7 @@ fn switch_setup<C: Connection>(
                     println!("Monitor configuration: {}", name)
                 }
             }
-            Err(e) => eprintln!("Error: {}", e),
+            Err(e) => error!("{:?}", e),
         },
         None => error!(
             "Error: Monitor change indicated, and the connected monitors did not match a config"
@@ -252,17 +273,17 @@ fn switch_setup<C: Connection>(
 }
 
 fn setup_notify<C: Connection>(conn: &C, root: Window, mask: NotifyMask) -> Result<()> {
-    conn.randr_select_input(root, mask)?.check()?;
+    conn.randr_select_input(root, mask).into_diagnostic()?.check().into_diagnostic()?;
     Ok(())
 }
 
 /// You know.
-fn main() {
+fn main() -> Result<()> {
     let args = app::autorandrd::args().get_matches();
     // Unwrap below is safe, because the program exits from `get_matches` above when a config
     // is not provided.
     let config_name = args.value_of("config").unwrap();
-    let config = Config::from_fname_or_exit(&config_name);
+    let config = Config::from_fname(&config_name).into_diagnostic()?;
     stderrlog::new()
         .verbosity(args.occurrences_of("verbosity") as usize)
         .timestamp(stderrlog::Timestamp::Off)
@@ -295,4 +316,5 @@ fn main() {
             }
         }
     }
+    Ok(())
 }

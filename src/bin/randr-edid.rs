@@ -1,4 +1,3 @@
-use serde::Serialize;
 use x11rb::{
     connect,
     connection::Connection,
@@ -10,13 +9,7 @@ use autorandr_rs::{
     app::randr_edid, config::Monitor, edid_atom, get_monitors, get_outputs, ok_or_exit,
 };
 
-use std::collections::HashMap;
 use std::error::Error;
-
-#[derive(Serialize)]
-struct ConfigOut {
-    monitors: HashMap<String, Monitor>,
-}
 
 fn mon_name<C: Connection>(conn: &C, out: Output, ts: Timestamp) -> Result<String, Box<dyn Error>> {
     Ok(String::from_utf8(
@@ -52,9 +45,19 @@ fn main() {
             });
             (new_k, v)
         })
-        .collect::<HashMap<String, Monitor>>();
-    let out = ConfigOut { monitors };
-    // NOTE: The following unwrap is safe, ase there's no chance of error when
-    // serializing a ConfigOut struct
-    println!("{}", toml::to_string_pretty(&out).unwrap());
+        .collect::<Vec<(String, Monitor)>>();
+    for (name, m) in monitors.into_iter() {
+        let product = m.product
+            .map(|p| format!(r#"product="{}""#, p))
+            .unwrap_or_default();
+        let serial = m.serial
+            .map(|s| format!(r#"serial="{}""#, s))
+            .unwrap_or_default();
+        println!(
+            r#"monitor "{name}" {product} {serial}"#,
+            name=name,
+            serial=serial,
+            product=product
+        );
+    }
 }

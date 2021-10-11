@@ -41,9 +41,7 @@ _CONFIG_
 
 *0*	When check mode is specified, *autorandrd* found no errors.
 
-*1*	*autorandrd* could not find the config file specified.
-
-*2*	*autorandrd* found syntax errors within the config file.
+*1*	*autorandrd* could not find the config file or found syntax errors.
 
 
 # SEE ALSO

@@ -14,16 +14,17 @@ name = "randr-edid"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 edid = "0.3"
-nom = "3.2"
-toml = "0.5"
+nom = "3.2.0"
+kdl = "3.0.0"
+thiserror = "1.0"
 clap = "2.33"
 ansi_term = "0.11"
 log = "0.4"
 stderrlog = "0.5"
 
-[dependencies.serde]
-version = "1.0"
-features = [ "derive" ]
+[dependencies.miette]
+version = "3.2.0"
+features = [ "fancy" ]
 
 [dependencies.x11rb]
 version = "0.8"

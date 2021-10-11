@@ -1,31 +1,16 @@
-[monitors.Work-Down]
-product = "Acer K272HUL"
-serial = "T0SAA0014200"
-[monitors.Work-Up]
-product = "S27D850"
-serial = "HCJH901332"
+monitor "Work-Down" product="Acer K272HUL" serial="T0SAA0014200"
+monitor "Work-Up" product="S27D850" serial="HCJH901332"
 
-[configurations.Work-Desktop]
-monitors = ["Work-Down", "Work-Up"]
-[configurations.Work-Desktop.Work-Up]
-mode = "2560x1440"
-position = "0x0"
-primary = false
-[configurations.Work-Desktop.Work-Down]
-mode = "2560x1440"
-position = "0x1440"
-primary = true
-
-[configurations.Work-Lower-Only]
-monitors = ["Work-Down"]
-[configurations.Work-Lower-Only.Work-Down]
-mode = "2560x1440"
-position = "0x0"
-primary = true
-
-[configurations.Work-Upper-Only]
-monitors = ["Work-Up"]
-[configurations.Work-Upper-Only.Work-Up]
-mode = "2560x1440"
-position = "0x0"
-primary = true
+layout "Work-Desktop" {
+    matches "Work-Down" "Work-Up"
+    monitor "Work-Up" w=2560 h=1440 x=0 y=0 primary=true
+    monitor "Work-Down" w=2560 h=1440 x=0 y=1440
+}
+layout "Work-Lower-Only" {
+    matches "Work-Down"
+    monitor "Work-Down" w=2560 h=1440 x=0 y=0 primary=true
+}
+layout "Work-Upper-Only" {
+    matches "Work-Up"
+    monitor "Work-Up" w=2560 h=1440 x=0 y=0 primary=true
+}

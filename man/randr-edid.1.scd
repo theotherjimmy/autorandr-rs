@@ -12,7 +12,7 @@ randr-edid - Print EDIDs of attached monitors
 
 # DESCRIPTION
 
-*randr-edid* Prints the EDIDs of attached monitors in TOML format. The format matches
+*randr-edid* Prints the EDIDs of attached monitors in KDL format. The format matches
 *autorandrd*(5).
 
 # SEE ALSO
