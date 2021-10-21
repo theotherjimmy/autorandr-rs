@@ -1,6 +1,6 @@
 //! Parser for the autorandr-rs(5) configuration file
 use edid::{Descriptor, EDID};
-use kdl::{KdlError, KdlNode as Node, KdlValue, parse_document};
+use kdl::{parse_document, KdlError, KdlNode as Node, KdlValue};
 use thiserror::Error;
 
 use std::{
@@ -8,7 +8,7 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     fmt::{Display, Formatter},
-    io::{Read, Error as IoError},
+    io::{Error as IoError, Read},
     num::ParseIntError,
 };
 
@@ -31,7 +31,7 @@ pub enum Error {
     #[error("Unexpected node {0}")]
     Unexpected(String),
     #[error("Io Error")]
-    Io(#[from] IoError)
+    Io(#[from] IoError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -125,7 +125,7 @@ fn get_name(n: &Node, name: &'static str) -> Result<String> {
 impl FromNode for MonConfig {
     fn from_node(n: &Node) -> Result<Self> {
         if n.name != "monitor" {
-            return Err(Error::NodeTypeMismatch("monitor", n.name.clone()))
+            return Err(Error::NodeTypeMismatch("monitor", n.name.clone()));
         }
         let name = get_name(n, "layout.monitor")?;
         let x = extract_int_value(n, "x", "layout.monitor")? as i16;
@@ -135,7 +135,12 @@ impl FromNode for MonConfig {
         let primary = extract_bool_value(n, "primary", "layout.monitor")?;
         let mode = Mode { w, h };
         let position = Position { x, y };
-        Ok(Self { name, mode, position, primary })
+        Ok(Self {
+            name,
+            mode,
+            position,
+            primary,
+        })
     }
 }
 
@@ -149,7 +154,7 @@ struct LayoutIn {
 impl FromNode for LayoutIn {
     fn from_node(n: &Node) -> Result<Self> {
         if n.name != "layout" {
-            return Err(Error::NodeTypeMismatch("layout", n.name.clone()))
+            return Err(Error::NodeTypeMismatch("layout", n.name.clone()));
         }
         let name = get_name(n, "layout")?;
         let mut layout = Vec::new();
@@ -159,10 +164,14 @@ impl FromNode for LayoutIn {
                 "monitor" => layout.push(MonConfig::from_node(node)?),
                 "matches" => {
                     if matches.is_none() {
-                        let m: Result<Vec<_>> = node.values.iter().map(|v| match v {
-                            KdlValue::String(mon_name) => Ok(mon_name.clone()),
-                            _ => Err(Error::FieldTypeMisMatch("matches", "String")),
-                        }).collect();
+                        let m: Result<Vec<_>> = node
+                            .values
+                            .iter()
+                            .map(|v| match v {
+                                KdlValue::String(mon_name) => Ok(mon_name.clone()),
+                                _ => Err(Error::FieldTypeMisMatch("matches", "String")),
+                            })
+                            .collect();
                         matches = Some(m?);
                     } else {
                         return Err(Error::DuplicateSingleton("layout.matches"));
@@ -172,7 +181,11 @@ impl FromNode for LayoutIn {
             }
         }
         if let Some(matches) = matches {
-            Ok(Self { name, matches, layout })
+            Ok(Self {
+                name,
+                matches,
+                layout,
+            })
         } else {
             Err(Error::MissingField("layout", "matches"))
         }
@@ -185,7 +198,11 @@ pub struct SingleConfig {
     pub setup: HashMap<Monitor, MonConfig>,
 }
 
-fn extract_optional_str(n: &Node, field: &'static str, name: &'static str) -> Result<Option<String>> {
+fn extract_optional_str(
+    n: &Node,
+    field: &'static str,
+    name: &'static str,
+) -> Result<Option<String>> {
     match n.properties.get(field) {
         None => Ok(None),
         Some(KdlValue::String(v)) => Ok(Some(v.clone())),
@@ -216,21 +233,26 @@ impl TryFrom<Vec<Node>> for Config {
             }
         }
         let mut out = HashMap::new();
-        for LayoutIn { name: conf_name, matches, layout: setup } in layouts {
+        for LayoutIn {
+            name: conf_name,
+            matches,
+            layout: setup,
+        } in layouts
+        {
             let mut mon_set = Vec::with_capacity(matches.len());
             for m in matches.into_iter() {
-                let mon_desc = mon_names.get(&m).ok_or_else(|| {
-                    Error::UnknownMonitor(conf_name.clone(), m)
-                })?;
+                let mon_desc = mon_names
+                    .get(&m)
+                    .ok_or_else(|| Error::UnknownMonitor(conf_name.clone(), m))?;
                 mon_set.push(mon_desc.clone())
             }
             mon_set.sort();
             let mut fb_size = Mode { w: 0, h: 0 };
             let mut next_setup = HashMap::with_capacity(setup.len());
             for mon in setup.into_iter() {
-                let mon_desc = mon_names.get(&mon.name).ok_or_else(|| {
-                    Error::UnknownMonitor(conf_name.clone(), mon.name.clone())
-                })?;
+                let mon_desc = mon_names
+                    .get(&mon.name)
+                    .ok_or_else(|| Error::UnknownMonitor(conf_name.clone(), mon.name.clone()))?;
                 fb_size.w = max(fb_size.w, mon.position.x as u16 + mon.mode.w);
                 fb_size.h = max(fb_size.h, mon.position.y as u16 + mon.mode.h);
                 next_setup.insert(mon_desc.clone(), mon);

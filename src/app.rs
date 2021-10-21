@@ -1,44 +1,44 @@
 //! Command line argument parser for autorandr-rs(1)
 
-pub mod autorandrd {
-    use clap::{App, Arg};
-    pub const NAME: &'static str = "autorandrd";
+use clap::{App, Arg, SubCommand};
 
-    pub fn args() -> App<'static, 'static> {
-        App::new(NAME)
-            .version("0.3")
-            .about(
-                "Watches for changes in connected monitors and switches configurations with EDIDs",
-            )
-            .arg(
-                Arg::with_name("config")
-                    .value_name("CONFIG")
-                    .help("The configuration file in TOML")
-                    .required(true)
-                    .index(1),
-            )
-            .arg(
-                Arg::with_name("check")
-                    .short("c")
-                    .long("check")
-                    .help("The configuration file in TOML"),
-            )
-            .arg(
-                Arg::with_name("verbosity")
-                    .short("v")
-                    .multiple(true)
-                    .help("Increase message verbosity"),
-            )
-    }
-}
+pub const NAME: &'static str = "monitor-layout";
 
-pub mod randr_edid {
-    use clap::App;
-    pub const NAME: &'static str = "randr-edid";
-
-    pub fn args() -> App<'static, 'static> {
-        App::new(NAME)
-            .version("0.3")
-            .about("Print the EDIDs of all attached monitors in an autorandrd(5) compatible format")
-    }
+pub fn args() -> App<'static, 'static> {
+    App::new(NAME)
+        .about("Utilities for laying out monitors in Xorg sessions")
+        .version("0.3")
+        .arg(
+            Arg::with_name("verbosity")
+                .short("v")
+                .multiple(true)
+                .help("Increase message verbosity"),
+        )
+        .subcommand(
+            SubCommand::with_name("daemon")
+                .about("Watch for changes in connected monitors and apply matching layouts")
+                .arg(
+                    Arg::with_name("config")
+                        .value_name("CONFIG")
+                        .help("The configuration file")
+                        .required(true)
+                        .index(1),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("check")
+                .about("Check the configuration for errors")
+                .arg(
+                    Arg::with_name("config")
+                        .value_name("CONFIG")
+                        .help("The configuration file")
+                        .required(true)
+                        .index(1),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("print-edids").about(
+                "Read the edids and print them as they would appear in a configuration file",
+            ),
+        )
 }

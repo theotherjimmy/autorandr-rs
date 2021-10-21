@@ -9,6 +9,7 @@ use edid::{parse, EDID};
 use nom::IResult;
 
 pub mod app;
+pub mod commands;
 pub mod config;
 
 use config::Monitor;

@@ -23,15 +23,9 @@ fn main() {
     generate_man_pages(&outdir);
 
     // Use clap to build completion files.
-    macro_rules! gen_completions {
-        ($mod:ident, $outdir:expr) => {
-            let mut app = app::$mod::args();
-            app.gen_completions(app::$mod::NAME, Shell::Bash, $outdir);
-            app.gen_completions(app::$mod::NAME, Shell::Fish, $outdir);
-        };
-    }
-    gen_completions!(autorandrd, &outdir);
-    gen_completions!(randr_edid, &outdir);
+    let mut app = app::args();
+    app.gen_completions(app::NAME, Shell::Bash, &outdir);
+    app.gen_completions(app::NAME, Shell::Fish, &outdir);
 }
 
 fn generate_man_pages<P: AsRef<Path>>(outdir: P) {

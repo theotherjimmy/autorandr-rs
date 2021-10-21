@@ -1,3 +1,4 @@
+use clap::ArgMatches;
 use x11rb::{
     connect,
     connection::Connection,
@@ -5,10 +6,9 @@ use x11rb::{
     protocol::xproto::Timestamp,
 };
 
-use autorandr_rs::{
-    app::randr_edid, config::Monitor, edid_atom, get_monitors, get_outputs, ok_or_exit,
-};
+use crate::{config::Monitor, edid_atom, get_monitors, get_outputs, ok_or_exit};
 
+use miette::Result;
 use std::error::Error;
 
 fn mon_name<C: Connection>(conn: &C, out: Output, ts: Timestamp) -> Result<String, Box<dyn Error>> {
@@ -18,11 +18,7 @@ fn mon_name<C: Connection>(conn: &C, out: Output, ts: Timestamp) -> Result<Strin
 }
 
 /// You know.
-fn main() {
-    // It may seem odd to thow away the arguments, but this bin does not accept
-    // any command line arguments. This allows clap to handle --help and erroring
-    // when a user passes anything to us
-    let _ = randr_edid::args().get_matches();
+pub fn main(_: &ArgMatches<'_>) -> Result<()> {
     let (conn, screen_num) = ok_or_exit(connect(None), |e| {
         eprintln!("Could not connect to X server: {}", e);
         1
@@ -47,17 +43,20 @@ fn main() {
         })
         .collect::<Vec<(String, Monitor)>>();
     for (name, m) in monitors.into_iter() {
-        let product = m.product
+        let product = m
+            .product
             .map(|p| format!(r#"product="{}""#, p))
             .unwrap_or_default();
-        let serial = m.serial
+        let serial = m
+            .serial
             .map(|s| format!(r#"serial="{}""#, s))
             .unwrap_or_default();
         println!(
             r#"monitor "{name}" {product} {serial}"#,
-            name=name,
-            serial=serial,
-            product=product
+            name = name,
+            serial = serial,
+            product = product
         );
     }
+    Ok(())
 }

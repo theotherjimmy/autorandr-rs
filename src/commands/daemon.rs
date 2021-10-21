@@ -8,17 +8,18 @@ use x11rb::{
         GetScreenResourcesCurrentReply, NotifyMask, Output, SetConfig, SetCrtcConfigReply,
         SetCrtcConfigRequest,
     },
-    protocol::xproto::{ConnectionExt as XprotoExt, Atom, Timestamp, Window},
+    protocol::xproto::{Atom, ConnectionExt as XprotoExt, Timestamp, Window},
     protocol::Event,
 };
 
 use std::collections::{HashMap, HashSet};
 
+use clap::ArgMatches;
 use miette::{IntoDiagnostic, Result};
 use thiserror::Error;
 
-use autorandr_rs::config::{Config, Mode, MonConfig, Position, SingleConfig};
-use autorandr_rs::{app, edid_atom, get_monitors, get_outputs, ok_or_exit};
+use crate::config::{Config, Mode, MonConfig, Position, SingleConfig};
+use crate::{edid_atom, get_monitors, get_outputs, ok_or_exit};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -29,7 +30,6 @@ pub enum Error {
     #[error("No Crtc available for monitor {0}")]
     NoCrtc(String),
 }
-
 
 /// Find the config that matches the attached monitors. On a match, this returns a tuple of
 /// (name, frame buffer size, map from output to output config).
@@ -61,7 +61,11 @@ fn mode_map<C: Connection>(
     conn: &C,
     root: Window,
 ) -> Result<(HashMap<Mode, HashSet<u32>>, Timestamp)> {
-    let resources = conn.randr_get_screen_resources(root).into_diagnostic()?.reply().into_diagnostic()?;
+    let resources = conn
+        .randr_get_screen_resources(root)
+        .into_diagnostic()?
+        .reply()
+        .into_diagnostic()?;
     let mut modes: HashMap<_, HashSet<u32>> = HashMap::with_capacity(resources.modes.len());
     for mi in resources.modes.iter() {
         modes
@@ -113,11 +117,13 @@ fn find_mode_id(
 ) -> Result<u32> {
     let mode_ids = mode_map
         .get(&mode)
-        .ok_or_else(|| Error::ModeNotFound(mode.clone())).into_diagnostic()?;
+        .ok_or_else(|| Error::ModeNotFound(mode.clone()))
+        .into_diagnostic()?;
     info.modes
         .iter()
         .find_map(|m| mode_ids.get(m).map(|&m| m))
-        .ok_or_else(|| Error::ModeNotSupported(mode.clone())).into_diagnostic()
+        .ok_or_else(|| Error::ModeNotSupported(mode.clone()))
+        .into_diagnostic()
 }
 
 /// Apply a batch of SetCrtcConfig commands.
@@ -177,7 +183,11 @@ fn apply_config<C: Connection>(
         .filter_map(|o| setup.get(&o).map(|c| (c, o)));
     // This loop can't easily be a map, as it needs to be able to use '?'
     for (&conf, &out) in outs_in_conf {
-        let out_info = conn.randr_get_output_info(out, timestamp).into_diagnostic()?.reply().into_diagnostic()?;
+        let out_info = conn
+            .randr_get_output_info(out, timestamp)
+            .into_diagnostic()?
+            .reply()
+            .into_diagnostic()?;
         let mode = find_mode_id(&out_info, &modes, &conf.mode)?;
         let dest_crtc = allocate_crtc(&out_info, &mut free_crtcs)
             .ok_or_else(|| Error::NoCrtc(conf.name.clone()))
@@ -186,7 +196,11 @@ fn apply_config<C: Connection>(
         mm_w += out_info.mm_width;
         mm_h += out_info.mm_height;
         let Position { x, y } = conf.position;
-        let crtc_info = conn.randr_get_crtc_info(dest_crtc, timestamp).into_diagnostic()?.reply().into_diagnostic()?;
+        let crtc_info = conn
+            .randr_get_crtc_info(dest_crtc, timestamp)
+            .into_diagnostic()?
+            .reply()
+            .into_diagnostic()?;
         if x != crtc_info.x || y != crtc_info.y || mode != crtc_info.mode {
             enables.push(SetCrtcConfigRequest {
                 x,
@@ -202,14 +216,25 @@ fn apply_config<C: Connection>(
     // disabled
     let mut disables = Vec::with_capacity(free_crtcs.len());
     for &crtc in free_crtcs.into_iter() {
-        let info = conn.randr_get_crtc_info(crtc, timestamp).into_diagnostic()?.reply().into_diagnostic()?;
+        let info = conn
+            .randr_get_crtc_info(crtc, timestamp)
+            .into_diagnostic()?
+            .reply()
+            .into_diagnostic()?;
         if !info.outputs.is_empty() || info.mode != 0 {
             disables.push(disable_crtc(crtc, &info));
         }
     }
 
-    let geom = conn.get_geometry(root).into_diagnostic()?.reply().into_diagnostic()?;
-    let mut current = Mode { w: geom.width, h: geom.height };
+    let geom = conn
+        .get_geometry(root)
+        .into_diagnostic()?
+        .reply()
+        .into_diagnostic()?;
+    let mut current = Mode {
+        w: geom.width,
+        h: geom.height,
+    };
     if disables.is_empty() && enables.is_empty() && &current == fb_size {
         Ok(false)
     } else {
@@ -221,7 +246,10 @@ fn apply_config<C: Connection>(
         // Then we change the screen size to be large enough for both configuration
         if current != current.union(fb_size) {
             current = current.union(fb_size);
-            info!("Before Config - Setting Screen {} Size to {}x{} {}mmx{}mm", root, current.w, current.h, mm_w, mm_h);
+            info!(
+                "Before Config - Setting Screen {} Size to {}x{} {}mmx{}mm",
+                root, current.w, current.h, mm_w, mm_h
+            );
             conn.randr_set_screen_size(root, current.w, current.h, mm_w, mm_h)
                 .into_diagnostic()?
                 .check()
@@ -235,7 +263,10 @@ fn apply_config<C: Connection>(
                 .into_diagnostic()?
                 .check()
                 .into_diagnostic()?;
-            info!("After Config - Setting Screen Size to {}x{}", fb_size.w, fb_size.h);
+            info!(
+                "After Config - Setting Screen Size to {}x{}",
+                fb_size.w, fb_size.h
+            );
         }
         Ok(true)
     }
@@ -273,22 +304,15 @@ fn switch_setup<C: Connection>(
 }
 
 fn setup_notify<C: Connection>(conn: &C, root: Window, mask: NotifyMask) -> Result<()> {
-    conn.randr_select_input(root, mask).into_diagnostic()?.check().into_diagnostic()?;
+    conn.randr_select_input(root, mask)
+        .into_diagnostic()?
+        .check()
+        .into_diagnostic()?;
     Ok(())
 }
 
-/// You know.
-fn main() -> Result<()> {
-    let args = app::autorandrd::args().get_matches();
-    // Unwrap below is safe, because the program exits from `get_matches` above when a config
-    // is not provided.
-    let config_name = args.value_of("config").unwrap();
-    let config = Config::from_fname(&config_name).into_diagnostic()?;
-    stderrlog::new()
-        .verbosity(args.occurrences_of("verbosity") as usize)
-        .timestamp(stderrlog::Timestamp::Off)
-        .init()
-        .unwrap();
+pub fn daemon(args: &ArgMatches<'_>) -> Result<()> {
+    let config = check(args)?;
     if !args.is_present("check") {
         let (conn, screen_num) = ok_or_exit(connect(None), |e| {
             eprintln!("Could not connect to X server: {}", e);
@@ -317,4 +341,11 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn check(args: &ArgMatches<'_>) -> Result<Config> {
+    // Unwrap below is safe, because the program exits from `get_matches` above when a config
+    // is not provided.
+    let config_name = args.value_of("config").unwrap();
+    Config::from_fname(&config_name).into_diagnostic()
 }

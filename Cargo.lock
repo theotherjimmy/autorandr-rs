@@ -53,22 +53,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
-name = "autorandr-rs"
-version = "0.3.0"
-dependencies = [
- "ansi_term",
- "clap",
- "edid",
- "kdl",
- "log",
- "miette",
- "nom 3.2.1",
- "stderrlog",
- "thiserror",
- "x11rb",
-]
-
-[[package]]
 name = "backtrace"
 version = "0.3.61"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -271,6 +255,22 @@ checksum = "a92518e98c078586bc6c934028adcca4c92a53d6a958196de835170a01d84e4b"
 dependencies = [
  "adler",
  "autocfg",
+]
+
+[[package]]
+name = "monitor-layout"
+version = "0.3.0"
+dependencies = [
+ "ansi_term",
+ "clap",
+ "edid",
+ "kdl",
+ "log",
+ "miette",
+ "nom 3.2.1",
+ "stderrlog",
+ "thiserror",
+ "x11rb",
 ]
 
 [[package]]
