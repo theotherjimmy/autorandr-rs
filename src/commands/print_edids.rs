@@ -1,4 +1,6 @@
 use clap::ArgMatches;
+use miette::Result;
+use log::debug;
 use x11rb::{
     connect,
     connection::Connection,
@@ -8,7 +10,6 @@ use x11rb::{
 
 use crate::{config::Monitor, edid_atom, get_monitors, get_outputs, ok_or_exit};
 
-use miette::Result;
 use std::error::Error;
 
 fn mon_name<C: Connection>(conn: &C, out: Output, ts: Timestamp) -> Result<String, Box<dyn Error>> {
@@ -43,6 +44,7 @@ pub fn main(_: &ArgMatches<'_>) -> Result<()> {
         })
         .collect::<Vec<(String, Monitor)>>();
     for (name, m) in monitors.into_iter() {
+        debug!("{:?}", m);
         let product = m
             .product
             .map(|p| format!(r#"product="{}""#, p))
