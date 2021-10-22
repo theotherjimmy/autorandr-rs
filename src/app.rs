@@ -1,4 +1,4 @@
-//! Command line argument parser for autorandr-rs(1)
+//! Command line argument parser for monitor-layout(1)
 
 use clap::{App, Arg, SubCommand};
 

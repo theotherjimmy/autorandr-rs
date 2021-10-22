@@ -1,8 +1,8 @@
-autorandrd(1)
+monitor-layout(1)
 
 # NAME
 
-autorandrd - An automatic display configuration daemon for X11
+monitor-layout - An toolset for display configuration for X11
 
 
 # SYNOPSIS

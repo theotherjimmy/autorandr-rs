@@ -1,13 +1,13 @@
-autorandrd(5)
+monitor-layout(5)
 
 # NAME
 
-*autorandrd.kdl* - configuration file for *autorandrd*
+*monitor-layout.kdl* - configuration file for *monitor-layout*
 
 
 # SYNTAX
 
-The *autorandrd.kdl* file is in KDL format.
+The *monitor-layout.kdl* file is in KDL format.
 See https://kdl.dev for more information.
 
 
@@ -58,7 +58,7 @@ See https://kdl.dev for more information.
 
 
 # SEE ALSO
-*autorandrd*(1) *randr-edid*(1)
+*monitor-layout*(1)
 
 # AUTHORS
 Maintained by Jimmy Brisson. Up to date sources can be found at

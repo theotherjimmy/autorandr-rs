@@ -1,4 +1,4 @@
-//! Parser for the autorandr-rs(5) configuration file
+//! Parser for the monitor-layout(5) configuration file
 use edid::{Descriptor, EDID};
 use kdl::{parse_document, KdlError, KdlNode as Node, KdlValue};
 use thiserror::Error;
