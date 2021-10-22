@@ -7,45 +7,47 @@ autorandrd - An automatic display configuration daemon for X11
 
 # SYNOPSIS
 
-*autorandrd* _--help_++
-*autorandrd* [*-c*,*--config*] _CONFIG_
+*monitor-layout* [*-v* | *--verbose*] *print-edids*++
+*monitor-layout* [*-v* | *--verbose*] *check* _CONFIG_++
+*monitor-layout* [*-v* | *--verbose*] *daemon* _CONFIG_
 
 
 # DESCRIPTION
 
-*autorandrd* listens to monitor changes and reconfigures the attached
-monitors to mach a configuration that is specific to the monitors plugged in.
-
-The first mode prints a summary of the options.
-In the second mode, *autorandrd* will run as a daemon in the foreground.
-First, *autorandrd* reads the config file and checks for errors.
-At startup and after any attached monitor updates, *autorandrd* updates the
-monitor config to a matching configuration in the configuration file.
-
+*monitor-layout* is a group of related tools to automate monitor layout changes
+when the attached monitors change.
 
 
 # OPTIONS
 
 _CONFIG_
-	Use this configuration file. See *autorandrd*(5) for details on the
+	Use this configuration file. See *monitor-layout*(5) for details on the
 	format.
 
-*-c*, *--config*
-	Instead of daemonizing, check the config specified and exit.
+*-v*, *--verbose*
+	Be more verbose, showing more information on stderr each time it's specified.
 
 *-h*, *--help*
 	print usage info and exit.
 
 
-# EXIT STATUS
+# COMMANDS
 
-*0*	When check mode is specified, *autorandrd* found no errors.
+*print-edids*
+	Print the edids of all attached monitors in a format compatible with the *daemon*
+	command, using the port the monitor in place of the name.
 
-*1*	*autorandrd* could not find the config file or found syntax errors.
+*check*
+	Check that the configuration file contains no errors.
+
+*daemon*
+	In the foreground, run a daemon that waits for monitor connection and disconnection
+	events and applies the layouts specified in _CONFIG_ when the attached monitors
+	matches a specifed layout.
 
 
 # SEE ALSO
-*autorandrd*(5)
+*monitor-layout*(5)
 
 
 # AUTHORS
