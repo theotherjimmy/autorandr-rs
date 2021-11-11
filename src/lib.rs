@@ -7,20 +7,13 @@ use x11rb::{
 
 use edid::{parse, EDID};
 use nom::IResult;
+use miette::{IntoDiagnostic, Result};
 
 pub mod app;
 pub mod commands;
 pub mod config;
 
 use config::Monitor;
-
-/// Either unwrap the OK, or run the closure that returns an exit code and exit
-pub fn ok_or_exit<T, E>(r: Result<T, E>, f: impl Fn(E) -> i32) -> T {
-    match r {
-        Ok(t) => t,
-        Err(e) => std::process::exit(f(e)),
-    }
-}
 
 /// Read an EDID from an output.
 pub fn get_edid<C: Connection>(
@@ -40,8 +33,13 @@ pub fn get_edid<C: Connection>(
 pub fn get_outputs<C: Connection>(
     conn: &C,
     root: Window,
-) -> Result<GetScreenResourcesCurrentReply, Box<dyn Error>> {
-    Ok(conn.randr_get_screen_resources_current(root)?.reply()?)
+) -> Result<GetScreenResourcesCurrentReply> {
+    Ok(
+        conn.randr_get_screen_resources_current(root)
+            .into_diagnostic()?
+            .reply()
+            .into_diagnostic()?
+    )
 }
 
 /// Construct an iterator that represents a mapping from Xorg output ids to monitor descriptions.
@@ -64,6 +62,12 @@ pub fn get_monitors<'o, C: Connection>(
 }
 
 /// Get the atom that allows reading an EDID from an output
-pub fn edid_atom<C: Connection>(conn: &C) -> Result<Atom, Box<dyn Error>> {
-    Ok(conn.intern_atom(false, b"EDID")?.reply()?.atom)
+pub fn edid_atom<C: Connection>(conn: &C) -> Result<Atom> {
+    Ok(
+        conn.intern_atom(false, b"EDID")
+            .into_diagnostic()?
+            .reply()
+            .into_diagnostic()?
+            .atom
+    )
 }

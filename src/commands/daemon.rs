@@ -19,7 +19,7 @@ use miette::{IntoDiagnostic, Result};
 use thiserror::Error;
 
 use crate::config::{Config, Mode, MonConfig, Position, SingleConfig};
-use crate::{edid_atom, get_monitors, get_outputs, ok_or_exit};
+use crate::{edid_atom, get_monitors, get_outputs};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -339,22 +339,13 @@ fn setup_notify<C: Connection>(conn: &C, root: Window, mask: NotifyMask) -> Resu
 pub fn daemon(args: &ArgMatches<'_>) -> Result<()> {
     let config = check(args)?;
     if !args.is_present("check") {
-        let (conn, screen_num) = ok_or_exit(connect(None), |e| {
-            eprintln!("Could not connect to X server: {}", e);
-            1
-        });
+        let (conn, screen_num) = connect(None).into_diagnostic()?;
         let setup = conn.setup();
-        let atom_edid = ok_or_exit(edid_atom(&conn), |e| {
-            eprintln!("Failed to intern EDID atom: {}", e);
-            1
-        });
+        let atom_edid = edid_atom(&conn)?;
         let root = setup.roots[screen_num].root;
         let notify_mask =
             NotifyMask::SCREEN_CHANGE | NotifyMask::OUTPUT_CHANGE | NotifyMask::CRTC_CHANGE;
-        ok_or_exit(setup_notify(&conn, root, notify_mask), |e| {
-            eprintln!("Could not enable notifications: {}", e);
-            1
-        });
+        setup_notify(&conn, root, notify_mask)?;
         switch_setup(&config, &conn, atom_edid, root, true);
         loop {
             match conn.wait_for_event() {

@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use miette::Result;
+use miette::{IntoDiagnostic, Result};
 use tracing::debug;
 use x11rb::{
     connect,
@@ -8,41 +8,31 @@ use x11rb::{
     protocol::xproto::Timestamp,
 };
 
-use crate::{config::Monitor, edid_atom, get_monitors, get_outputs, ok_or_exit};
+use crate::{config::Monitor, edid_atom, get_monitors, get_outputs};
 
-use std::error::Error;
-
-fn mon_name<C: Connection>(conn: &C, out: Output, ts: Timestamp) -> Result<String, Box<dyn Error>> {
+fn mon_name<C: Connection>(conn: &C, out: Output, ts: Timestamp) -> Result<String> {
     Ok(String::from_utf8(
-        conn.randr_get_output_info(out, ts)?.reply()?.name,
-    )?)
+        conn.randr_get_output_info(out, ts)
+            .into_diagnostic()?
+            .reply()
+            .into_diagnostic()?
+            .name,
+    ).into_diagnostic()?)
 }
 
 /// You know.
 pub fn main(_: &ArgMatches<'_>) -> Result<()> {
-    let (conn, screen_num) = ok_or_exit(connect(None), |e| {
-        eprintln!("Could not connect to X server: {}", e);
-        1
-    });
+    let (conn, screen_num) = connect(None).into_diagnostic()?;
     let setup = conn.setup();
-    let atom_edid = ok_or_exit(edid_atom(&conn), |e| {
-        eprintln!("Unable to intern the EDID atom: {}", e);
-        1
-    });
+    let atom_edid = edid_atom(&conn)?;
     let root = setup.roots[screen_num].root;
-    let outs = ok_or_exit(get_outputs(&conn, root), |e| {
-        eprintln!("Could not get outputs: {}", e);
-        1
-    });
+    let outs = get_outputs(&conn, root)?;
     let monitors = get_monitors(&conn, &outs.outputs, atom_edid)
         .map(|(k, v)| {
-            let new_k = ok_or_exit(mon_name(&conn, k, outs.timestamp), |e| {
-                eprintln!("Could not read display name: {}", e);
-                1
-            });
-            (new_k, v)
+            let new_k = mon_name(&conn, k, outs.timestamp)?;
+            Ok((new_k, v))
         })
-        .collect::<Vec<(String, Monitor)>>();
+        .collect::<Result<Vec<(String, Monitor)>>>()?;
     for (name, m) in monitors.into_iter() {
         debug!("{:?}", m);
         let product = m
