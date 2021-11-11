@@ -1,6 +1,6 @@
 use clap::ArgMatches;
 use miette::Result;
-use log::debug;
+use tracing::debug;
 use x11rb::{
     connect,
     connection::Connection,

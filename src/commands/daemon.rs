@@ -1,4 +1,4 @@
-use log::{error, info};
+use tracing::{error, info};
 use x11rb::{
     connect,
     connection::Connection,
