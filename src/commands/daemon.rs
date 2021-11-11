@@ -172,6 +172,10 @@ fn apply_config<C: Connection>(
     setup: HashMap<Output, &MonConfig>,
     root: Window,
 ) -> Result<bool> {
+    let primary: Option<Output> = setup
+        .iter()
+        .find(|(_, c)| c.primary)
+        .map(|(o, _)| *o);
     let (modes, timestamp) = mode_map(conn, root)?;
     let mut free_crtcs: HashSet<_> = res.crtcs.iter().collect();
     let mut enables = Vec::with_capacity(res.crtcs.len());
@@ -235,7 +239,21 @@ fn apply_config<C: Connection>(
         w: geom.width,
         h: geom.height,
     };
-    if disables.is_empty() && enables.is_empty() && &current == fb_size {
+    let cur_primary = if primary.is_some() {
+        Some(
+            conn.randr_get_output_primary(root)
+                .into_diagnostic()?
+                .reply()
+                .into_diagnostic()?.output
+        )
+    } else {
+        None
+    };
+    if disables.is_empty()
+        && enables.is_empty()
+        && &current == fb_size
+        && primary == cur_primary
+    {
         Ok(false)
     } else {
         // First, we disable any CTRCs that must be disabled
@@ -267,6 +285,13 @@ fn apply_config<C: Connection>(
                 "After Config - Setting Screen Size to {}x{}",
                 fb_size.w, fb_size.h
             );
+        }
+        // Set the primary when we have to
+        if let Some(out) = primary {
+            conn.randr_set_output_primary(root, out)
+                .into_diagnostic()?
+                .check()
+                .into_diagnostic()?;
         }
         Ok(true)
     }
