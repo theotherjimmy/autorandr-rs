@@ -317,7 +317,7 @@ fn switch_setup<C: Connection>(
         Some((name, fb_size, setup)) => match apply_config(conn, &res, fb_size, setup, root) {
             Ok(changed) => {
                 if changed || force_print {
-                    println!("Monitor configuration: {}", name)
+                    println!("{}", name)
                 }
             }
             Err(e) => error!("{:?}", e),
