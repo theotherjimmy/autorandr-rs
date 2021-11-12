@@ -4,6 +4,11 @@ use tracing_subscriber::FmtSubscriber;
 use monitor_layout::app;
 
 fn main() -> Result<()> {
+    miette::set_hook(Box::new(|_| {
+        let mut theme = miette::GraphicalTheme::unicode();
+        theme.styles = miette::ThemeStyles::ansi();
+        Box::new(miette::GraphicalReportHandler::new_themed(theme))
+    }))?;
     let args = crate::app::args().get_matches();
     let level = match args.occurrences_of("verbosity") {
         0 => Level::WARN,
