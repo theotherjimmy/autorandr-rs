@@ -6,7 +6,7 @@ use x11rb::{
     protocol::randr::{
         ConnectionExt as RandrExt, Crtc, GetCrtcInfoReply, GetOutputInfoReply,
         GetScreenResourcesCurrentReply, NotifyMask, Output, SetConfig, SetCrtcConfigReply,
-        SetCrtcConfigRequest,
+        SetCrtcConfigRequest, SetPanningReply, SetPanningRequest, Rotation as Rot,
     },
     protocol::xproto::{Atom, ConnectionExt as XprotoExt, Timestamp, Window},
     protocol::Event,
@@ -18,7 +18,7 @@ use clap::ArgMatches;
 use miette::{IntoDiagnostic, Result};
 use thiserror::Error;
 
-use crate::config::{Config, Mode, MonConfig, Position, SingleConfig};
+use crate::config::{Config, Mode, MonConfig, Position, SingleConfig, Rotation};
 use crate::{edid_atom, get_monitors, get_outputs};
 
 #[derive(Error, Debug)]
@@ -127,7 +127,11 @@ fn find_mode_id(
 }
 
 /// Apply a batch of SetCrtcConfig commands.
-fn batch_config<C: Connection>(conn: &C, batch: Vec<SetCrtcConfigRequest>) -> Result<()> {
+fn batch_config<C: Connection + RandrExt>(
+    conn: &C,
+    batch: Vec<SetCrtcConfigRequest>,
+    disable_panning: Option<Vec<SetPanningRequest>>
+) -> Result<()> {
     for req in &batch {
         if req.mode != 0 {
             info!(
@@ -161,6 +165,37 @@ fn batch_config<C: Connection>(conn: &C, batch: Vec<SetCrtcConfigRequest>) -> Re
             _ => (),
         }
     }
+    if let Some(batch) = disable_panning {
+        info!("Batch pre-sent");
+        let timestamp = responses.first().map(|r| r.timestamp);
+        let cookies: Vec<Cookie<C, SetPanningReply>> = batch
+            .into_iter()
+            .map(|mut req|{
+                if let Some(ts) = timestamp {
+                    req.timestamp = ts;
+                }
+                req.send(conn)
+            })
+            .collect::<std::result::Result<_, _>>()
+            .into_diagnostic()?;
+        info!("Batch sent");
+        let responses: Vec<SetPanningReply> = cookies
+            .into_iter()
+            .map(|cookie| cookie.reply())
+            .collect::<std::result::Result<_, _>>()
+            .into_diagnostic()?;
+        info!("Batch recieved");
+        for (num, res) in responses.iter().enumerate() {
+            match res.status {
+                SetConfig::INVALID_CONFIG_TIME => {
+                    error!("Request #{} failed with invalid config time", num)
+                }
+                SetConfig::INVALID_TIME => error!("Request #{} failed with invalid time", num),
+                SetConfig::FAILED => error!("Request #{} failed", num),
+                _ => (),
+            }
+        }
+    }
     Ok(())
 }
 
@@ -179,6 +214,7 @@ fn apply_config<C: Connection>(
     let (modes, timestamp) = mode_map(conn, root)?;
     let mut free_crtcs: HashSet<_> = res.crtcs.iter().collect();
     let mut enables = Vec::with_capacity(res.crtcs.len());
+    let mut panning = Vec::with_capacity(res.crtcs.len());
     let mut mm_w = 0;
     let mut mm_h = 0;
     let outs_in_conf = res
@@ -205,15 +241,31 @@ fn apply_config<C: Connection>(
             .into_diagnostic()?
             .reply()
             .into_diagnostic()?;
-        if x != crtc_info.x || y != crtc_info.y || mode != crtc_info.mode {
+        let rotation: u16 = match conf.rot {
+            None => Rot::ROTATE0,
+            Some(Rotation::Right) => Rot::ROTATE270,
+            Some(Rotation::Left) => Rot::ROTATE90,
+        }.into();
+        if x != crtc_info.x
+            || y != crtc_info.y
+            || mode != crtc_info.mode
+            || rotation != crtc_info.rotation
+        {
             enables.push(SetCrtcConfigRequest {
                 x,
                 y,
-                rotation: 1,
+                rotation,
                 mode,
                 outputs: vec![out].into(),
                 ..disable_crtc(dest_crtc, &crtc_info)
             });
+            panning.push(SetPanningRequest {
+                crtc: dest_crtc,
+                timestamp: crtc_info.timestamp,
+                left: x as u16, top: y as u16, width: conf.mode.w, height: conf.mode.h,
+                track_left: x as u16, track_top: y as u16, track_width: conf.mode.w, track_height: conf.mode.h,
+                border_left: 0, border_top: 0, border_right: 0, border_bottom: 0,
+            })
         }
     }
     // If there were CRTCs left over after allocating the next setup, ensure that they are
@@ -259,7 +311,7 @@ fn apply_config<C: Connection>(
         // First, we disable any CTRCs that must be disabled
         if !disables.is_empty() {
             info!("Disabling CRTCs {:?}", disables);
-            batch_config(conn, disables)?;
+            batch_config(conn, disables, None)?;
         }
         // Then we change the screen size to be large enough for both configuration
         if current != current.union(fb_size) {
@@ -274,7 +326,7 @@ fn apply_config<C: Connection>(
                 .into_diagnostic()?;
         }
         // Finally we enable and change modes of CRTCs
-        batch_config(conn, enables)?;
+        batch_config(conn, enables, Some(panning))?;
         // Lastly we change the screen size to be the correct size for the final config
         if &current != fb_size {
             conn.randr_set_screen_size(root, fb_size.w, fb_size.h, mm_w, mm_h)

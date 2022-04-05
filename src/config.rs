@@ -36,6 +36,13 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// The rotation to apply to a monitor
+#[derive(Debug)]
+pub enum Rotation {
+    Left,
+    Right,
+}
+
 trait FromNode: Sized {
     fn from_node(f: &Node) -> Result<Self>;
 }
@@ -97,6 +104,7 @@ pub struct MonConfig {
     pub mode: Mode,
     pub position: Position,
     pub primary: bool,
+    pub rot: Option<Rotation>,
 }
 
 fn extract_int_value(n: &Node, field: &'static str, name: &'static str) -> Result<i64> {
@@ -114,6 +122,20 @@ fn extract_bool_value(n: &Node, field: &'static str, name: &'static str) -> Resu
         Some(_) => Err(Error::FieldTypeMisMatch(name, "boolean")),
     }
 }
+
+fn extract_rot_value(n: &Node, field: &'static str, name: &'static str) -> Result<Option<Rotation>> {
+    let rot_str = extract_optional_str(n, field, name)?;
+    if let Some(s) = rot_str {
+        match s.as_str() {
+            "left" => Ok(Some(Rotation::Left)),
+            "right" => Ok(Some(Rotation::Right)),
+            _ => Err(Error::FieldTypeMisMatch(name, "left or right")),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 fn get_name(n: &Node, name: &'static str) -> Result<String> {
     match n.values.get(0) {
         None => Err(Error::MissingField(name, "name")),
@@ -133,6 +155,7 @@ impl FromNode for MonConfig {
         let w = extract_int_value(n, "w", "layout.monitor")? as u16;
         let h = extract_int_value(n, "h", "layout.monitor")? as u16;
         let primary = extract_bool_value(n, "primary", "layout.monitor")?;
+        let rot = extract_rot_value(n, "rotate", "layout.monitor")?;
         let mode = Mode { w, h };
         let position = Position { x, y };
         Ok(Self {
@@ -140,6 +163,7 @@ impl FromNode for MonConfig {
             mode,
             position,
             primary,
+            rot,
         })
     }
 }
@@ -253,8 +277,13 @@ impl TryFrom<Vec<Node>> for Config {
                 let mon_desc = mon_names
                     .get(&mon.name)
                     .ok_or_else(|| Error::UnknownMonitor(conf_name.clone(), mon.name.clone()))?;
-                fb_size.w = max(fb_size.w, mon.position.x as u16 + mon.mode.w);
-                fb_size.h = max(fb_size.h, mon.position.y as u16 + mon.mode.h);
+                if mon.rot.is_some() {
+                    fb_size.w = max(fb_size.w, mon.position.x as u16 + mon.mode.h);
+                    fb_size.h = max(fb_size.h, mon.position.y as u16 + mon.mode.w);
+                } else {
+                    fb_size.w = max(fb_size.w, mon.position.x as u16 + mon.mode.w);
+                    fb_size.h = max(fb_size.h, mon.position.y as u16 + mon.mode.h);
+                }
                 next_setup.insert(mon_desc.clone(), mon);
             }
             out.insert(
