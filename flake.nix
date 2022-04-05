@@ -24,7 +24,7 @@
             cargo-bloat
             cargo-binutils
             cargo-deps
-            gdb-multitarget
+            gdb
             gnuplot
             scdoc
             xtruss # This is _really_ good; it's strace for xorg calls, with all that implies
